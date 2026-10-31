@@ -26,6 +26,8 @@ import {
 import { keyValue } from "./keys.ts";
 
 const execFileAsync = promisify(execFile);
+/** A login left open longer than this must be restarted. */
+export const SPOTIFY_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 interface StoredSpotifyRecord {
 	accessToken?: string;
@@ -128,7 +130,7 @@ export async function completeSpotifyCallback(
 	}
 	const rec = readSpotifyRecord();
 	const pending = rec.pendingPkce;
-	if (!pending || pending.state !== state) {
+	if (!pending || pending.state !== state || Date.now() - pending.createdAt > SPOTIFY_OAUTH_STATE_TTL_MS) {
 		return { ok: false, error: "Invalid or expired OAuth state. Please try connecting again." };
 	}
 	const redirectUri = pending.redirectUri || buildSpotifyRedirectUri(origin);

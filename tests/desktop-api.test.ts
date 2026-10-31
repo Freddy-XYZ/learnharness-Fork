@@ -2,14 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { NextRequest } from "next/server";
-// Installed Next 16.3.2 retains the old test-helper export despite proxy.md's new name.
-import { unstable_doesMiddlewareMatch as unstable_doesProxyMatch } from "next/experimental/testing/server";
-import { desktopAPIAuthorized } from "../src/server/desktop-access.ts";
-import { proxy, config } from "../proxy.ts";
+import { desktopAPIAuthorized, localRequestAllowed } from "../src/server/desktop-access.ts";
+import { proxy } from "../proxy.ts";
 import { browserServiceSpawnEnv } from "../src/agent/subagents/headless.ts";
 const require = createRequire(import.meta.url);
 const { desktopAPIHeaders, HEADER } = require("../electron/desktop-api.cjs");
 const { trustedSender, chatGPTControl } = require("../electron/chatgpt-ipc.cjs");
+const { externalURLAllowed } = require("../electron/external-url.cjs");
 const secret = "a".repeat(64);
 const origin = "http://127.0.0.1:12345";
 
@@ -52,8 +51,6 @@ test("all methods fail closed for desktop missing/wrong secret; API-only matcher
 		assert(!desktopAPIAuthorized(new Headers(value === undefined ? {} : { [HEADER]: value }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
 	}
 	assert(desktopAPIAuthorized(new Headers({ [HEADER]: secret }), { LH_DESKTOP_SERVER: "1", LH_DESKTOP_API_SECRET: secret }));
-	for (const pathname of ["/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + pathname }));
-	assert(!unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + "/chat/new" }));
 	const originalMarker = process.env.LH_DESKTOP_SERVER;
 	const originalSecret = process.env.LH_DESKTOP_API_SECRET;
 	try {
@@ -63,6 +60,8 @@ test("all methods fail closed for desktop missing/wrong secret; API-only matcher
 			assert.equal(proxy(new NextRequest(origin + "/api/settings", { method })).status, 403);
 			assert.equal(proxy(new NextRequest(origin + "/api/settings", { method, headers: { [HEADER]: secret } })).headers.get("x-middleware-next"), "1");
 		}
+		for (const pathname of ["/api", "/api/events", "/api/chat", "/api/settings/models", "/api/chats/scratch/markdown"]) assert.equal(proxy(new NextRequest(origin + pathname)).status, 403, pathname);
+		for (const pathname of ["/chat/new", "/apiary"]) assert.equal(proxy(new NextRequest(origin + pathname)).headers.get("x-middleware-next"), "1", pathname);
 	} finally {
 		if (originalMarker === undefined) delete process.env.LH_DESKTOP_SERVER; else process.env.LH_DESKTOP_SERVER = originalMarker;
 		if (originalSecret === undefined) delete process.env.LH_DESKTOP_API_SECRET; else process.env.LH_DESKTOP_API_SECRET = originalSecret;
@@ -91,4 +90,28 @@ test("renderer controls have no lease or general token bridge, and require the t
 	mainFrame.url = "https://thirdparty.invalid/";
 	assert(!trustedSender({ sender: contents, senderFrame: mainFrame }, origin, BrowserWindow));
 	assert.equal(browserServiceSpawnEnv({ LH_DESKTOP_API_SECRET: secret, LH_DESKTOP_SERVER: "1" }).LH_DESKTOP_API_SECRET, undefined);
+});
+
+test("loopback guard rejects rebound Host names and cross-site Origins on every path", () => {
+	const allowed = (h: Record<string, string>) => localRequestAllowed(new Headers(h));
+	assert(allowed({}), "non-browser clients without Host/Origin pass");
+	for (const host of ["127.0.0.1:3000", "localhost:3000", "[::1]:3000", "localhost"]) assert(allowed({ host }), host);
+	assert(allowed({ host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000" }));
+	for (const h of <Record<string, string>[]>[
+		{ host: "evil.example:3000" }, // DNS rebinding
+		{ host: "evil.example:3000", origin: "http://evil.example:3000" },
+		{ host: "127.0.0.1.evil.example:3000" },
+		{ host: "127.0.0.1:3000", origin: "https://evil.example" }, // CSRF
+		{ host: "127.0.0.1:3000", origin: "http://127.0.0.1:3001" },
+		{ host: "127.0.0.1:3000", origin: "null" },
+		{ origin: "http://127.0.0.1:3000" },
+		{ host: "bad host" },
+	]) assert(!allowed(h), JSON.stringify(h));
+	assert.equal(proxy(new NextRequest(origin + "/chat/new", { headers: { host: "evil.example:12345" } })).status, 403, "pages are guarded too");
+	assert.equal(proxy(new NextRequest(origin + "/api/spotify/player", { method: "POST", headers: { host: "127.0.0.1:12345", origin: "https://evil.example" } })).status, 403);
+});
+
+test("only http(s) and mailto links leave the app", () => {
+	for (const url of ["https://example.com", "http://127.0.0.1:1/x", "mailto:a@b.c"]) assert(externalURLAllowed(url), url);
+	for (const url of ["file:///etc/passwd", "smb://host/share", "javascript:alert(1)", "vscode://x", "not a url", ""]) assert(!externalURLAllowed(url), url);
 });

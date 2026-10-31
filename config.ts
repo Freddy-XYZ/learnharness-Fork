@@ -1,8 +1,17 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Repository root (this file is at <root>/config.ts). */
 export const ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+// Tests (`npm test` sets NODE_ENV=test) must never write into the repo's
+// real data/: an unset LH_DATA_DIR gets a fresh temp dir per test process.
+// Set on the env too, so modules that read LH_DATA_DIR directly agree.
+if (!process.env.LH_DATA_DIR && process.env.NODE_ENV === "test") {
+	process.env.LH_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "lh-test-data-"));
+}
 
 /**
  * THE data-location seam (the Electron contract, 2026-09-17): LH_DATA_DIR

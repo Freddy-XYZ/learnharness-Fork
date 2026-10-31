@@ -30,6 +30,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { externalURLAllowed } = require("./external-url.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -351,7 +352,7 @@ function createWindow(url) {
 	// "local-fonts": the appearance section's reading-font picker (2026-09-26).
 	const allowedPermissions = new Set(["media", "mediaKeySystem", "clipboard-sanitized-write", "local-fonts"]);
 	const fromOwnOrigin = (origin, permission) =>
-		((origin === allowedOrigin() || (origin === "https://sdk.scdn.co" && (permission === "media" || permission === "mediaKeySystem"))) &&
+		((origin === allowedOrigin() || (origin === "https://sdk.scdn.co" && permission === "mediaKeySystem")) &&
 			allowedPermissions.has(permission));
 	session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
 		const requestOrigin = details.requestingUrl ? new URL(details.requestingUrl).origin : null;
@@ -364,11 +365,11 @@ function createWindow(url) {
 	win.webContents.on("will-navigate", (event, target) => {
 		if (new URL(target).origin !== allowedOrigin()) {
 			event.preventDefault();
-			void shell.openExternal(target);
+			if (externalURLAllowed(target)) void shell.openExternal(target);
 		}
 	});
 	win.webContents.setWindowOpenHandler(({ url: target }) => {
-		void shell.openExternal(target);
+		if (externalURLAllowed(target)) void shell.openExternal(target);
 		return { action: "deny" };
 	});
 

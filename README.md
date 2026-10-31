@@ -41,7 +41,31 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
 
+## Learning tools
+
+> **Fork only:** these tools and the [Spotify player](#music-with-spotify) exist only in this fork. They are not in the official downloads. To use them, clone this repository and run it from source (see [Run this fork](#run-this-fork)).
+
+- **Confidence calibration.** A chip in the session header compares your confidence with your check results. High-confidence misses and low-confidence hits are listed as weak spots, and one click starts a repair session for them. Predictions made before teaching do not count against you.
+- **Spaced review.** Practice results are tracked per proposition in the graph. Each clean solve without hints extends the next review (1 → 3 → 7 → 14 → 30 days). A hint, a skipped problem, or a retest flag resets it. Graph nodes show their review status, and **Review due** in the composer loads the due and retest propositions into a practice session.
+- **Feynman mode.** Choose **Teach back** on a graph node or at the end of a lesson and explain the idea in plain words, as if to a curious 12-year-old. The agent asks about jargon and missing causal steps, then scores clarity, jargon, and the causal chain.
+- **Lesson wrap-up.** When the last step of the plan is checked, a summary card shows the covered steps and your calibration, with shortcuts to practice, teach back, or repair weak spots.
+- **Pronunciation trainer.** In language lessons the agent can ask you to say a word or sentence. You hear it first through your browser's text-to-speech, then you say it into the microphone. Each word is marked green (exact), yellow (close or accented), or red (missed). This uses the same Deepgram key as dictation.
+- **Visual-first teaching.** The teacher plans a diagram, figure, or interactive demo for each step. Demos include step-by-step animations and parameter sliders, and they are built while you answer the prediction question.
+
 ## Download and get started
+
+> **This is a fork.** The downloads and releases below are the official LearnHarness builds. They do not include this fork's features ([learning tools](#learning-tools), [Spotify](#music-with-spotify)). To get them, clone this repository instead.
+
+### Run this fork
+
+```bash
+git clone https://github.com/Freddy-XYZ/learnharness-Fork.git
+cd learnharness-Fork
+npm install
+npm run dev        # http://localhost:3000
+```
+
+### Official builds
 
 **[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
 
@@ -56,6 +80,26 @@ Advanced users can set a [prompt-cache retention preference](docs/compaction-acc
 All three platforms support in-app updates.
 
 **Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+
+## Music with Spotify
+
+The sidebar has a Spotify player for study music: play/pause, skip, seek, volume, your playlists, and track search. Playback requires **Spotify Premium**.
+
+> **Desktop app limitation:** the packaged desktop app starts its server on a random port each launch. Spotify requires an exact redirect URI, so connecting from the packaged app does not work yet. Run LearnHarness with `npm run dev` (or `npm run desktop:dev`) to use Spotify.
+
+1. **Create a Spotify app.** Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), choose **Create app**, and select **Web API** and **Web Playback SDK**.
+2. **Add the redirect URI** exactly as written:
+   ```
+   http://127.0.0.1:3000/api/spotify/callback
+   ```
+   Use `127.0.0.1`, not `localhost`. Spotify rejects `localhost` redirect URIs, and LearnHarness rewrites `localhost` to `127.0.0.1` itself. If you run on a different port, use that port.
+3. **Allow your account.** Apps in Spotify's development mode only work for listed users. Add the Spotify account you will log in with under **User Management**.
+4. **Save the Client ID.** Copy the app's **Client ID** (not the secret; LearnHarness uses PKCE) into **Settings → Providers → Music (Spotify)**.
+5. **Connect.** Click **Connect Spotify** in the same section and approve access in the popup. It closes itself, and the status shows `connected · <your name>`.
+
+**Playback device.** In the browser, LearnHarness registers its own Spotify device named **LearnHarness Player** and plays through it. If that is unavailable, it controls whichever Spotify device is active. On macOS with the Spotify app installed, it can also control the desktop app directly. If you see *"Kein aktives Spotify-Gerät gefunden"*, open Spotify on any device briefly, or use LearnHarness in the browser.
+
+Tokens are stored locally in `spotify-auth.json` in the data directory (owner-only permissions). **Disconnect** in Settings removes them.
 
 ## Your keys, your data
 
