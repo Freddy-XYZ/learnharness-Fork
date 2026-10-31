@@ -43,6 +43,8 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ## Learning tools
 
+> **Fork only:** these tools and the [Spotify player](#music-with-spotify) exist only in this fork. They are not in the official downloads. To use them, clone this repository and run it from source (see [Run this fork](#run-this-fork)).
+
 - **Confidence calibration.** A chip in the session header compares your confidence with your check results. High-confidence misses and low-confidence hits are listed as weak spots, and one click starts a repair session for them. Predictions made before teaching do not count against you.
 - **Spaced review.** Practice results are tracked per proposition in the graph. Each clean solve without hints extends the next review (1 → 3 → 7 → 14 → 30 days). A hint, a skipped problem, or a retest flag resets it. Graph nodes show their review status, and **Review due** in the composer loads the due and retest propositions into a practice session.
 - **Feynman mode.** Choose **Teach back** on a graph node or at the end of a lesson and explain the idea in plain words, as if to a curious 12-year-old. The agent asks about jargon and missing causal steps, then scores clarity, jargon, and the causal chain.
@@ -51,6 +53,19 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 - **Visual-first teaching.** The teacher plans a diagram, figure, or interactive demo for each step. Demos include step-by-step animations and parameter sliders, and they are built while you answer the prediction question.
 
 ## Download and get started
+
+> **This is a fork.** The downloads and releases below are the official LearnHarness builds. They do not include this fork's features ([learning tools](#learning-tools), [Spotify](#music-with-spotify)). To get them, clone this repository instead.
+
+### Run this fork
+
+```bash
+git clone https://github.com/Freddy-XYZ/learnharness-Fork.git
+cd learnharness-Fork
+npm install
+npm run dev        # http://localhost:3000
+```
+
+### Official builds
 
 **[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
 
