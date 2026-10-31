@@ -351,7 +351,7 @@ function createWindow(url) {
 	// "local-fonts": the appearance section's reading-font picker (2026-09-26).
 	const allowedPermissions = new Set(["media", "mediaKeySystem", "clipboard-sanitized-write", "local-fonts"]);
 	const fromOwnOrigin = (origin, permission) =>
-		((origin === allowedOrigin() || (origin === "https://sdk.scdn.co" && (permission === "media" || permission === "mediaKeySystem"))) &&
+		((origin === allowedOrigin() || (origin === "https://sdk.scdn.co" && permission === "mediaKeySystem")) &&
 			allowedPermissions.has(permission));
 	session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
 		const requestOrigin = details.requestingUrl ? new URL(details.requestingUrl).origin : null;
