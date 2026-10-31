@@ -1,20 +1,57 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { DumbbellIcon } from "lucide-react";
+import { ClockIcon, DumbbellIcon } from "lucide-react";
 
 /** Home and the draft share one wrapping action row. Picker controls lead;
  * setup is centered only when it is the sole action. */
-export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?: ReactNode }) {
-	if (!picker && !setup) return null;
+export function ComposerActions({
+	picker,
+	reviewDue,
+	setup,
+}: {
+	picker?: ReactNode;
+	reviewDue?: ReactNode;
+	setup?: ReactNode;
+}) {
+	if (!picker && !reviewDue && !setup) return null;
 	return (
 		<div
 			data-testid="composer-actions"
-			className={`pointer-events-auto mb-2 flex flex-wrap items-center gap-2 ${picker ? "justify-start" : "justify-center"}`}
+			className={`pointer-events-auto mb-2 flex flex-wrap items-center gap-2 ${picker || reviewDue ? "justify-start" : "justify-center"}`}
 		>
 			{picker}
+			{reviewDue}
 			{setup}
 		</div>
+	);
+}
+
+/** One-click Spaced Retrieval trigger: selects the prioritized batch of due /
+ *  retest / unpracticed propositions into the practice composer. */
+export function ReviewDueControl({
+	count,
+	retestCount = 0,
+	onReviewDue,
+}: {
+	count: number;
+	retestCount?: number;
+	onReviewDue?: () => void;
+}) {
+	if (count <= 0) return null;
+	return (
+		<button
+			type="button"
+			data-testid="review-due-cta"
+			onClick={onReviewDue}
+			className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 font-ui text-xs text-foreground transition-colors hover:bg-accent"
+		>
+			<ClockIcon aria-hidden="true" className="size-3.5 text-primary" />
+			<span>Review due ({count})</span>
+			{retestCount > 0 && (
+				<span className="text-muted-foreground">· {retestCount} retest</span>
+			)}
+		</button>
 	);
 }
 

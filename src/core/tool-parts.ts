@@ -29,7 +29,7 @@
 
 import { Value } from "typebox/value";
 import type { TSchema } from "typebox";
-import { quizDisplayInputSchema, askInputSchema, askOptionProblems, quizInputProblems, explainInputProblems, explainDisplayInputSchema, type AskToolInput, type QuizToolInput, type ExplainToolInput } from "./question-core.ts";
+import { quizDisplayInputSchema, askInputSchema, askOptionProblems, quizInputProblems, explainInputProblems, explainDisplayInputSchema, pronounceDisplayInputSchema, pronounceInputProblems, type AskToolInput, type QuizToolInput, type ExplainToolInput, type PronounceToolInput } from "./question-core.ts";
 import { healEncodedArguments } from "./argument-heal.ts";
 import { probeDoneInputSchema, type ProbeDoneInput } from "./contracts/probe.ts";
 
@@ -110,6 +110,15 @@ export function parseExplainInput(input: unknown): ExplainToolInput | undefined 
 	const cleaned = boundaryParse<ExplainToolInput>(explainDisplayInputSchema, input);
 	if (!cleaned) return undefined;
 	if (explainInputProblems(cleaned).length > 0) return undefined;
+	return cleaned;
+}
+
+/** Pronounce parse for DISPLAY: the display schema (base + OPTIONAL lenient `type`). */
+export function parsePronounceInput(input: unknown): PronounceToolInput | undefined {
+	const healedInput = healEncodedArguments(input, pronounceDisplayInputSchema);
+	const cleaned = boundaryParse<PronounceToolInput>(pronounceDisplayInputSchema, healedInput);
+	if (!cleaned) return undefined;
+	if (pronounceInputProblems(cleaned).length > 0) return undefined;
 	return cleaned;
 }
 

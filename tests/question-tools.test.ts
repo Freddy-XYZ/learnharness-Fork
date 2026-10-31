@@ -36,10 +36,18 @@ const dataDir = path.join(PATHS.root, "data");
 fs.mkdirSync(dataDir, { recursive: true });
 
 const createdChats: string[] = [];
+const createdJobs: string[] = [];
 after(() => {
 	for (const id of createdChats) {
 		try {
 			fs.unlinkSync(path.join(PATHS.chats, `${id}.json`));
+		} catch {
+			/* scratch cleanup, best effort */
+		}
+	}
+	for (const id of createdJobs) {
+		try {
+			fs.unlinkSync(path.join(PATHS.data, "jobs", `${id}.json`));
 		} catch {
 			/* scratch cleanup, best effort */
 		}
@@ -295,10 +303,10 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 			spawn: () => {},
 		};
 		const full = Object.keys(createTeacherTools(ctx)).sort();
-		assert.deepEqual(full, ["ask_user_question", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "research", "visual"]);
+		assert.deepEqual(full, ["ask_user_question", "demo", "find", "grep", "ls", "pdf", "plan_init", "pronounce", "quiz", "read", "research", "visual"]);
 
 		const noResearch = Object.keys(createTeacherTools(ctx, { research: false })).sort();
-		assert.deepEqual(noResearch, ["ask_user_question", "demo", "find", "grep", "ls", "pdf", "plan_init", "quiz", "read", "visual"]);
+		assert.deepEqual(noResearch, ["ask_user_question", "demo", "find", "grep", "ls", "pdf", "plan_init", "pronounce", "quiz", "read", "visual"]);
 
 		// absent = enabled: an empty record and undefined behave identically
 		assert.deepEqual(
@@ -309,7 +317,7 @@ describe("tool toggles (core/pending.ts + factories)", () => {
 
 		// The mechanic switch (owner 2026-09-27): free-recall swaps the teach
 		// quiz for the teach explain — one quizzing tool, whichever is armed.
-		const freeFull = ["ask_user_question", "demo", "explain", "find", "grep", "ls", "pdf", "plan_init", "read", "research", "visual"];
+		const freeFull = ["ask_user_question", "demo", "explain", "find", "grep", "ls", "pdf", "plan_init", "pronounce", "read", "research", "visual"];
 		assert.deepEqual(Object.keys(createTeacherTools(ctx, { explain: true })).sort(), freeFull);
 		assert.deepEqual(
 			Object.keys(createTeacherTools(ctx, { explain: true, research: false })).sort(),
@@ -471,5 +479,85 @@ describe("tool descriptions carry mechanics only, no question-craft", () => {
 		);
 		assert.ok(shared.includes("asymmetry"), "the option craft moved here, not deleted");
 		assert.ok(shared.includes("TRANSCRIBED SPEECH"), "the dictation-leniency note lives here");
+	});
+});
+
+describe("TeacherArtifactGate: demo/visual dispatch blocks same-turn check, allows predict", () => {
+	it("allows quiz(type: 'predict') in the same turn as demo or visual, but rejects quiz(type: 'check')", async () => {
+		const chatId = newChat("Artifact gate: quiz");
+		chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "Arithmetic" }], edges: [], version: 1 });
+		const tools = createTeacherTools({
+			chatId,
+			chatStore,
+			jobStore,
+			spawn: (job) => {
+				createdJobs.push(job.id);
+			},
+		});
+
+		await tools.demo!.execute("tc-demo", { title: "Oscillator", brief: "Spring mass" }, undefined, undefined);
+
+		const predictRes = await boundaryParse(tools.quiz!, {
+			...validQuiz,
+			type: "predict",
+		});
+		assert.equal(predictRes.success, true, "prefetching demo/visual alongside a prediction is allowed");
+
+		const checkRes = await boundaryParse(tools.quiz!, {
+			...validQuiz,
+			type: "check",
+		});
+		assert.equal(checkRes.success, false, "same-turn check after demo/visual is rejected so waitForIdle is not blocked");
+		assert.match(problemLines(checkRes.error).join("\n"), /cannot pose a check question in the same turn that dispatched a demo or visual/);
+
+		// A fresh turn constructs a fresh registry and gate, allowing check once the artifact turn has ended.
+		const nextTurnTools = createTeacherTools({
+			chatId,
+			chatStore,
+			jobStore,
+			spawn: (job) => {
+				createdJobs.push(job.id);
+			},
+		});
+		const nextCheckRes = await boundaryParse(nextTurnTools.quiz!, {
+			...validQuiz,
+			type: "check",
+		});
+		assert.equal(nextCheckRes.success, true, "check succeeds in a subsequent turn");
+	});
+
+	it("rejects explain(type: 'check') in the same turn as visual dispatch, while allowing explain(type: 'predict')", async () => {
+		const chatId = newChat("Artifact gate: explain");
+		chatStore.saveTree(chatId, { nodes: [{ id: "arith", title: "Arithmetic" }], edges: [], version: 1 });
+		const tools = createTeacherTools(
+			{
+				chatId,
+				chatStore,
+				jobStore,
+				spawn: (job) => {
+					createdJobs.push(job.id);
+				},
+			},
+			{ explain: true },
+		);
+
+		await tools.visual!.execute("tc-vis", { brief: "Vector diagram" }, undefined, undefined);
+
+		const predictRes = await boundaryParse(tools.explain!, {
+			question: "What direction will the net force point?",
+			correctAnswer: "Along the diagonal.",
+			nodeId: "arith",
+			type: "predict",
+		});
+		assert.equal(predictRes.success, true);
+
+		const checkRes = await boundaryParse(tools.explain!, {
+			question: "Explain why the net force points along the diagonal.",
+			correctAnswer: "Equal orthogonal components sum along the 45-degree line.",
+			nodeId: "arith",
+			type: "check",
+		});
+		assert.equal(checkRes.success, false);
+		assert.match(problemLines(checkRes.error).join("\n"), /cannot pose a check question in the same turn that dispatched a demo or visual/);
 	});
 });

@@ -24,7 +24,13 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { GraphCostControl } from "@/components/graph-view.tsx";
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
-import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
+import {
+	selectDueForReview,
+	type ChatSummary,
+	type DueReviewSelection,
+	type GraphCostSummary,
+	type GraphSnapshot,
+} from "@/src/core";
 
 /** The quiet centered summary — a pure body (props in, markup out) so
  * the render suite can pin it statically. Very quiet by owner ruling:
@@ -85,6 +91,7 @@ export function MinimalHome({
 	practiceSelection,
 	onPracticeSelectionChange,
 	onChainSelectClose,
+	onDueReviewChange,
 }: {
 	/** The lifted pick set drives the overlay's select mode (Done instead
 	 * of the delete fence); the chip in home's composer reflects it. */
@@ -92,6 +99,7 @@ export function MinimalHome({
 	practiceSelection?: ReadonlySet<string>;
 	onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
 	onChainSelectClose?: () => void;
+	onDueReviewChange?: (due: DueReviewSelection | null) => void;
 }) {
 	const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
 	const [costs, setCosts] = useState<GraphCostSummary | null>(null);
@@ -116,6 +124,17 @@ export function MinimalHome({
 	useEffect(() => {
 		readState();
 	}, [readState]);
+
+	useEffect(() => {
+		if (!onDueReviewChange) return;
+		if (!snapshot || snapshot.propositions.length === 0) {
+			onDueReviewChange(null);
+			return;
+		}
+		onDueReviewChange(
+			selectDueForReview(snapshot.propositions, snapshot.chains, snapshot.practiceStats ?? {}),
+		);
+	}, [snapshot, onDueReviewChange]);
 
 	// The practice chip opens the table in select mode (GraphView's law):
 	// the pick intent raises the overlay; Done/close reports back down.

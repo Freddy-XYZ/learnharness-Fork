@@ -75,9 +75,18 @@ export const problemInputObject = Type.Object({
 			"REQUIRED — the problem as the learner sees it (markdown + LaTeX). Must be self-contained and " +
 			"solvable from the session's material. NEVER announces the target proposition.",
 	}),
-	mode: Type.Union([Type.Literal("recall"), Type.Literal("discrimination"), Type.Literal("composition")], {
-		description: "REQUIRED — the demand mode: recall, discrimination, or composition (bare words, no quotes).",
-	}),
+	mode: Type.Union(
+		[
+			Type.Literal("recall"),
+			Type.Literal("discrimination"),
+			Type.Literal("composition"),
+			Type.Literal("feynman"),
+		],
+		{
+			description:
+				"REQUIRED — the demand mode: recall, discrimination, composition, or feynman (bare words, no quotes). Use feynman for Teach-Back ('explain like I'm 12') demands.",
+		},
+	),
 	target: Type.Optional(
 		Type.Array(Type.String(), {
 			minItems: 1,
@@ -192,6 +201,20 @@ export const concludeInputObject = Type.Object({
 		{ description: "REQUIRED — the miss classification: cue, discrimination, execution, careless, or structural — or null = no miss (bare, no quotes)." },
 	),
 	retest: Type.Boolean({ description: "REQUIRED — true marks the problem for a fresh-surface retest before the session ends." }),
+	feynmanScorecard: Type.Optional(
+		Type.Object(
+			{
+				clarity: Type.Union([Type.Literal("strong"), Type.Literal("partial"), Type.Literal("gap")]),
+				jargonFree: Type.Union([Type.Literal("strong"), Type.Literal("partial"), Type.Literal("gap")]),
+				causalChain: Type.Union([Type.Literal("strong"), Type.Literal("partial"), Type.Literal("gap")]),
+				jargonFlags: Type.Optional(Type.Array(Type.String())),
+			},
+			{
+				description:
+					"Optional — include when concluding a feynman-mode problem: rate clarity, jargonFree, and causalChain (strong, partial, or gap) and list any unpacked jargon terms in jargonFlags.",
+			},
+		),
+	),
 });
 
 export type ConcludeInput = Static<typeof concludeInputObject>;

@@ -67,6 +67,7 @@ import type {
 import { MIN_CLUSTER_SIZE } from "./clusters.ts";
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { derivePracticeStats, type PracticeSessionSlice } from "./spaced-retrieval.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -583,6 +584,22 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	// one-shot pass until the first merge writes the ledger.
 	const positions = deps.graphStore.readPositions();
 
+	const practiceSessions: PracticeSessionSlice[] = [];
+	if (typeof deps.chatStore.listChats === "function") {
+		for (const summary of deps.chatStore.listChats()) {
+			if (summary.kind !== "practice") continue;
+			const record = deps.chatStore.getChat(summary.id);
+			if (record && Array.isArray(record.messages)) {
+				practiceSessions.push({
+					id: record.id,
+					updatedAt: record.updatedAt,
+					messages: record.messages,
+				});
+			}
+		}
+	}
+	const practiceStats = derivePracticeStats(graph.nodes, practiceSessions);
+
 	return {
 		nodes,
 		propositions: graph.nodes,
@@ -595,6 +612,7 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		nodeSessions,
 		clusters,
 		...(Object.keys(positions).length > 0 ? { positions } : {}),
+		practiceStats,
 	};
 }
 

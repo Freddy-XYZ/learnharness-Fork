@@ -23,12 +23,16 @@ import {
 	parseAskInput,
 	parseQuizInput,
 	parseExplainInput,
+	parsePronounceInput,
 	toggleOption,
 	toggleOther,
 	type AnswerRequest,
 	type AskToolInput,
 	type DockSelection,
 	type ExplainToolInput,
+	type PronounceSpec,
+	type PronounceToolInput,
+	type PronunciationEvaluation,
 	type QuestionAnswerData,
 	type QuestionFormDraft,
 	type QuestionData,
@@ -38,6 +42,7 @@ import {
 	type Phase3,
 } from "@/src/core";
 import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-rail";
+import { PronunciationTrainer } from "@/components/pronunciation-trainer";
 
 /**
  * The question dock — a pending quiz/ask REPLACES the chat composer: the
@@ -60,9 +65,9 @@ import { CONFIDENCE_COLORS, confidenceRailStyle } from "@/components/confidence-
  */
 
 export interface QuestionDockProps {
-	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall";
+	toolName: "quiz" | "probe" | "ask_user_question" | "explain" | "recall" | "pronounce";
 	toolCallId: string;
-	input: QuizToolInput | AskToolInput | ExplainToolInput;
+	input: QuizToolInput | AskToolInput | ExplainToolInput | PronounceToolInput;
 	/** Collapse state, owned by the DockOverlay (it drives the shell's height morph). */
 	expanded: boolean;
 	/**
@@ -130,7 +135,13 @@ export function QuestionDock({
 	// anything that slips through renders the quiet fallback, never a
 	// crash on `.map` over model-authored bytes.
 	const parsed =
-		canonical === "quiz" ? parseQuizInput(input) : canonical === "explain" ? parseExplainInput(input) : parseAskInput(input);
+		canonical === "quiz"
+			? parseQuizInput(input)
+			: canonical === "explain"
+				? parseExplainInput(input)
+				: canonical === "pronounce"
+					? parsePronounceInput(input)
+					: parseAskInput(input);
 	if (!parsed) {
 		return (
 			<div data-testid="malformed-question" className="rounded-xl border border-dashed bg-card/60 p-3 text-sm text-muted-foreground">
@@ -148,7 +159,7 @@ export function QuestionDock({
 					variant={reveal ? "reveal" : "collapsed"}
 					toolLabel={toolLabel}
 					label={
-						(canonical === "quiz" || canonical === "explain") &&
+						(canonical === "quiz" || canonical === "explain" || canonical === "pronounce") &&
 						normalizeQuizType((parsed as { type?: unknown }).type) === "predict"
 							? "Prediction"
 							: undefined
@@ -199,7 +210,7 @@ export function QuestionDockBar({
 	label,
 	toolLabel,
 }: {
-	toolName: "quiz" | "ask_user_question" | "explain";
+	toolName: "quiz" | "ask_user_question" | "explain" | "pronounce";
 	question: string;
 	onExpand: () => void;
 	variant?: "collapsed" | "reveal";
@@ -242,7 +253,13 @@ export function QuestionDockBar({
 			<span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				{label ??
 							toolLabel ??
-							(toolName === "quiz" ? "Check" : toolName === "explain" ? "Explain" : "Question")}
+							(toolName === "quiz"
+								? "Check"
+								: toolName === "explain"
+									? "Explain"
+									: toolName === "pronounce"
+										? "Pronounce"
+										: "Question")}
 			</span>
 			<span className="min-w-0 flex-1 truncate text-muted-foreground">{teaserText(question)}</span>
 			<span className="flex shrink-0 items-center gap-1 text-xs font-medium">
@@ -276,31 +293,46 @@ function QuestionDockForm({
 		const quizInput = kind === "quiz" ? (input as QuizToolInput) : null;
 		const askInput = kind === "ask" ? (input as AskToolInput) : null;
 		const explainInput = kind === "explain" ? (input as ExplainToolInput) : null;
+		const pronounceInput = kind === "pronounce" ? (input as PronounceToolInput) : null;
 		const multi = input instanceof Object && "multiSelect" in input ? input.multiSelect === true : false;
 		const mode: QuestionMode =
-			kind === "quiz"
-				? multi
-					? "multi-select"
-					: "single-select"
-				: askInput?.options?.length
+			kind === "pronounce"
+				? "pronounce"
+				: kind === "quiz"
 					? multi
 						? "multi-select"
 						: "single-select"
+					: askInput?.options?.length
+						? multi
+							? "multi-select"
+							: "single-select"
 						: "text";
 		const options = normalizeOptions(
 			(quizInput?.options ?? askInput?.options ?? []) as { label: string; value?: string }[],
 		);
 		const ordered = kind === "quiz" && options.length > 0 ? shuffleOptions(options, seededRandom(toolCallId)) : options;
+		const pronounceSpec: PronounceSpec | undefined = pronounceInput
+			? {
+					phrase: pronounceInput.phrase,
+					language: pronounceInput.language,
+					phoneticHint: pronounceInput.phoneticHint,
+					translation: pronounceInput.translation,
+				}
+			: (input as { pronounce?: PronounceSpec }).pronounce;
 		const q: QuestionData = {
 			id: toolCallId,
 			kind,
 			// The role (owner 2026-10-03): predict questions gate by it in the
 			// view (never collapsed) and the answered card tucks the explanation.
-			questionType: kind === "quiz" ? normalizeQuizType((input as { type?: unknown }).type) : undefined,
+			questionType:
+				kind === "quiz" || kind === "pronounce"
+					? normalizeQuizType((input as { type?: unknown }).type)
+					: undefined,
 			question: input.question,
 			context: input.details,
 			mode,
 			options: ordered,
+			pronounce: pronounceSpec,
 			createdAt: new Date().toISOString(),
 		};
 		if (quizInput) {
@@ -328,12 +360,16 @@ function QuestionDockForm({
 	const [thinking, setThinking] = useState(initialDraft?.thinking ?? "");
 	const [other, setOther] = useState(initialDraft?.other ?? "");
 	const [text, setText] = useState(initialDraft?.text ?? "");
+	const [pronunciation, setPronunciation] = useState<PronunciationEvaluation | undefined>(
+		initialDraft?.pronunciation,
+	);
 	/* Refs MIRROR the two dictation-target fields ("nothing gets lost"
 	 * round, owner 2026-10-01): the run's flush lands via setState, which
 	 * a closure waiting through `await finishDictation()` cannot observe
 	 * in time — submit reads these, kept current at every write site. */
 	const thinkingTextRef = useRef(initialDraft?.thinking ?? "");
 	const answerTextRef = useRef(initialDraft?.text ?? "");
+	const pronunciationRef = useRef<PronunciationEvaluation | undefined>(initialDraft?.pronunciation);
 	// Confidence (owner, 2026-10-01): an index into CONFIDENCE_STOPS,
 	// resting at 50 — a real coin flip by definition, untouched or
 	// deliberate (the same number, the same meaning). The dock unmounts
@@ -372,9 +408,11 @@ function QuestionDockForm({
 	const toggle = (idx: number) => setSel(toggleOption(selectMode, sel, idx));
 
 	const canSubmit =
-		qd.mode === "text"
-			? text.trim().length > 0
-			: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
+		qd.mode === "pronounce"
+			? Boolean(pronunciation) || sel.dontKnow || thinking.trim().length > 0
+			: qd.mode === "text"
+				? text.trim().length > 0 || Boolean(pronunciation)
+				: sel.dontKnow || (sel.otherSelected && other.trim().length > 0) || sel.selected.size > 0;
 
 	const submit = () => {
 		if (!canSubmit || compactionRunning) return;
@@ -401,6 +439,7 @@ function QuestionDockForm({
 			// Always sent on quiz answers (owner: 50 must mean 50, never
 			// "untouched"); buildAnswer drops it on "I don't know".
 			confidence: kind === "quiz" ? CONFIDENCE_STOPS[confIdx] : undefined,
+			pronunciation: pronunciationRef.current,
 		};
 		// Snapshot before optimistic submission unmounts the form. Ref values
 		// include the dictation finals that just landed, unlike stale closures.
@@ -410,6 +449,7 @@ function QuestionDockForm({
 			other,
 			text: answerTextRef.current,
 			confidenceIndex: confIdx,
+			pronunciation: pronunciationRef.current,
 		});
 		onSubmit(buildAnswer(qd, req, toolName));
 	};
@@ -443,10 +483,10 @@ function QuestionDockForm({
 	const otherInputRef = useRef<HTMLDivElement>(null);
 	const thinkingRef = useRef<HTMLDivElement>(null);
 	// One row past the options is the trailing row: quiz → don't-know,
-	// ask → Other (a question never has both). Text mode (ask/explain)
-	// has no rows — the composer IS the answer surface.
-	const optionCount = qd.mode === "text" ? 0 : qd.options.length;
-	const rowCount = qd.mode === "text" ? 0 : optionCount + 1;
+	// ask → Other (a question never has both). Text/pronounce mode
+	// has no rows — the composer / pronunciation trainer IS the answer surface.
+	const optionCount = qd.mode === "text" || qd.mode === "pronounce" ? 0 : qd.options.length;
+	const rowCount = qd.mode === "text" || qd.mode === "pronounce" ? 0 : optionCount + 1;
 
 	const kbdAct = (idx: number) => {
 		if (idx < optionCount) toggle(idx);
@@ -571,13 +611,17 @@ function QuestionDockForm({
 						? "Probe"
 						: toolName === "recall"
 							? "Recall"
-							: kind === "quiz"
+							: kind === "pronounce"
 								? qd.questionType === "predict"
-									? "Prediction"
-									: "Check"
+									? "Pronounce · Prediction"
+									: "Pronounce"
+								: kind === "quiz"
+									? qd.questionType === "predict"
+										? "Prediction"
+										: "Check"
 									: kind === "explain"
 										? "Explain"
-											: "Question"}
+										: "Question"}
 					{qd.mode === "multi-select" && " · select all that apply"}
 				</div>
 				<div className="mb-3 font-medium">
@@ -589,7 +633,29 @@ function QuestionDockForm({
 					</div>
 				)}
 
-				{qd.mode !== "text" && (
+				{qd.pronounce && (
+					<PronunciationTrainer
+						spec={qd.pronounce}
+						evaluation={pronunciation}
+						onEvaluate={(ev) => {
+							pronunciationRef.current = ev;
+							setPronunciation(ev);
+							setSel((prev) => ({ ...prev, dontKnow: false }));
+							if (qd.mode === "text" && ev.transcript) {
+								answerTextRef.current = ev.transcript;
+								setText(ev.transcript);
+							}
+						}}
+						dontKnow={qd.mode === "pronounce" ? sel.dontKnow : undefined}
+						onToggleDontKnow={
+							qd.mode === "pronounce"
+								? () => setSel((prev) => ({ ...prev, dontKnow: !prev.dontKnow }))
+								: undefined
+						}
+					/>
+				)}
+
+				{qd.mode !== "text" && qd.mode !== "pronounce" && (
 					<div className="flex flex-col gap-2 pb-2" role={qd.mode === "multi-select" ? "group" : "radiogroup"}>
 						{qd.options.map((opt, i) => {
 							const isSel = sel.selected.has(i);

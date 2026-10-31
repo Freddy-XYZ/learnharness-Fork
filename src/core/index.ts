@@ -84,3 +84,8 @@ export * from "./coverage.ts";
 // ONE session→markdown formatter — the extractor's view and the user-facing
 // export share it. Pure, browser-safe.
 export * from "./session-markdown.ts";
+export * from "./spaced-retrieval.ts";
+export * from "./calibration.ts";
+export * from "./pronunciation.ts";
+export * from "./feynman.ts";
+export * from "./spotify.ts";

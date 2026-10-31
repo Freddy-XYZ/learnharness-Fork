@@ -56,13 +56,20 @@ export const QUESTION_TOOLS = [
 	"ask_user_question",
 	"explain",
 	"recall",
+	"pronounce",
 ] as const;
 
 /** The tool→kind map (the dock's own fold, named once — the dismissal
  *  path and the dock must never disagree on what a tool is). The probe
  *  names fold onto their teach kinds — the dock is kind-driven. */
-export function toolQuestionKind(tool: string): "quiz" | "ask" | "explain" {
-	return tool === "quiz" || tool === "probe" ? "quiz" : tool === "explain" || tool === "recall" ? "explain" : "ask";
+export function toolQuestionKind(tool: string): "quiz" | "ask" | "explain" | "pronounce" {
+	return tool === "quiz" || tool === "probe"
+		? "quiz"
+		: tool === "explain" || tool === "recall"
+			? "explain"
+			: tool === "pronounce"
+				? "pronounce"
+				: "ask";
 }
 
 /** Tools fulfilled by background sub-agent jobs (W2/W6). */

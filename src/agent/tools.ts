@@ -9,6 +9,8 @@ import {
 	explainInputProblems,
 	parseOptionsIfString,
 	probeQuizInputSchema,
+	pronounceInputObject,
+	pronounceInputProblems,
 	quizInputObject,
 	quizInputProblems,
 } from "../core/question-core.ts";
@@ -216,10 +218,23 @@ export const probeQuizTool: AgentTool<typeof probeQuizInputSchema> = {
 	},
 };
 
+/** Turn-scoped gate tracking whether a visual or demo artifact was
+ *  dispatched during the current teacher turn. Prefetching alongside
+ *  `type: "predict"` is allowed; posing a `type: "check"` question in the
+ *  same turn as a demo/visual dispatch is blocked so `waitForIdle` is not
+ *  trapped behind a dangling check before the artifact arrives. */
+export interface TeacherArtifactGate {
+	artifactDispatched: boolean;
+}
+
+const ARTIFACT_CHECK_GATE_MESSAGE =
+	"cannot pose a check question in the same turn that dispatched a demo or visual — end your turn now with no further tool calls so the artifact can arrive and render first; pose the check after it lands (predictions with type: \"predict\" are allowed alongside a dispatch)";
+
 /** The teacher's free-recall variant (nodeId-validated, same seam as the
  *  teach quiz — phases/plan recognize BOTH tool names). */
 export function teachExplainToolFor(
 	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+	gate?: TeacherArtifactGate,
 ): AgentTool<typeof explainInputObject> {
 	return {
 		name: "explain",
@@ -232,6 +247,9 @@ export function teachExplainToolFor(
 			const problems = [...explainInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			if (gate?.artifactDispatched && input.type === "check") {
+				problems.push(ARTIFACT_CHECK_GATE_MESSAGE);
+			}
 			if (problems.length > 0) return invalidInputResult("explain", problems);
 			return questionResult();
 		},
@@ -372,7 +390,10 @@ function nodeIdProblem(ctx: Pick<PlanToolContext, "chatId" | "chatStore">, nodeI
  *  nodeId is REQUIRED (owner ruling 2026-09-26): the untagged ad-hoc quiz is
  *  gone — off-map checks route through ask_user_question, and the teach
  *  seam (first tagged quiz) is structurally guaranteed. */
-export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStore">): AgentTool<typeof quizInputObject> {
+export function teachQuizToolFor(
+	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+	gate?: TeacherArtifactGate,
+): AgentTool<typeof quizInputObject> {
 	return {
 		name: "quiz",
 		label: "quiz",
@@ -384,7 +405,44 @@ export function teachQuizToolFor(ctx: Pick<PlanToolContext, "chatId" | "chatStor
 			const problems = [...quizInputProblems(input)];
 			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
 			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			if (gate?.artifactDispatched && input.type === "check") {
+				problems.push(ARTIFACT_CHECK_GATE_MESSAGE);
+			}
 			if (problems.length > 0) return invalidInputResult("quiz", problems);
+			return questionResult();
+		},
+	};
+}
+
+/** The teacher's spoken pronunciation tool (Wave 6 — Deepgram pronunciation
+ *  validation): poses a target word or sentence in `language` for the learner
+ *  to listen to and speak aloud into the microphone, returning word-by-word
+ *  Deepgram confidence and alignment feedback. */
+export function teachPronounceToolFor(
+	ctx: Pick<PlanToolContext, "chatId" | "chatStore">,
+	gate?: TeacherArtifactGate,
+): AgentTool<typeof pronounceInputObject> {
+	return {
+		name: "pronounce",
+		label: "pronounce",
+		description:
+			"Ask the learner to SPEAK a target word or sentence aloud in a language (`language` BCP-47 code, e.g. 'es', 'en', 'fr', 'it', 'de') " +
+			"and validate their pronunciation with Deepgram word-by-word confidence scoring. " +
+			"The UI provides a 'Listen' button (TTS playback at normal and slow speed), a 'Speak' microphone button, " +
+			"and immediate word-by-word traffic-light feedback (Green = exact & high confidence, Yellow = fuzzy/accent, Red = missed) " +
+			"before returning the full pronunciation evaluation and transcript to you. " +
+			"Set `type` ('predict' or 'check') and `nodeId` (required plan node slug). ONE question/exercise per turn.",
+		parameters: pronounceInputObject,
+		prepareArguments: prepareQuestionArguments,
+		executionMode: "sequential",
+		execute: async (_toolCallId, input) => {
+			const problems = [...pronounceInputProblems(input)];
+			const nodeIdProblemText = nodeIdProblem(ctx, input.nodeId);
+			if (nodeIdProblemText) problems.push(nodeIdProblemText);
+			if (gate?.artifactDispatched && input.type === "check") {
+				problems.push(ARTIFACT_CHECK_GATE_MESSAGE);
+			}
+			if (problems.length > 0) return invalidInputResult("pronounce", problems);
 			return questionResult();
 		},
 	};
@@ -435,6 +493,7 @@ export function createTeacherTools(
 	ctx: TeacherToolContext,
 	enabled?: EnabledTools,
 ): Record<string, AgentTool<any>> {
+	const gate: TeacherArtifactGate = { artifactDispatched: false };
 	// Quizzing mechanics (owner 2026-09-27): free-recall swaps the teach
 	// quiz for the teach explain — one quizzing tool at a time, whichever
 	// the settings arm. ask stays always-on.
@@ -442,12 +501,13 @@ export function createTeacherTools(
 	// Same widening as the prober's (see above) — the conditional spread of
 	// two differently-typed literals collapses into an unusable union type.
 	const quizzing: Record<string, AgentTool<any>> =
-		mechanics === "free" ? { explain: teachExplainToolFor(ctx) } : { quiz: teachQuizToolFor(ctx) };
+		mechanics === "free" ? { explain: teachExplainToolFor(ctx, gate) } : { quiz: teachQuizToolFor(ctx, gate) };
 	// healToolRecord — same standard as the prober's registry (above).
 	return healToolRecord(
 		filterEnabledTools(
 			{
 			...quizzing,
+			pronounce: teachPronounceToolFor(ctx, gate),
 			ask_user_question: askUserQuestionTool,
 			// The learner-filesystem set is always-on (user-decided 2026-09,
 			// sources v1): the teacher locates and reads learner-referenced
@@ -458,7 +518,15 @@ export function createTeacherTools(
 			find: findTool,
 			grep: grepTool,
 			...planTools(ctx),
-			...jobTools({ chatId: ctx.chatId, jobStore: ctx.jobStore, spawn: ctx.spawn, searchAvailable: ctx.searchAvailable }),
+			...jobTools({
+				chatId: ctx.chatId,
+				jobStore: ctx.jobStore,
+				spawn: ctx.spawn,
+				searchAvailable: ctx.searchAvailable,
+				onArtifactDispatch: () => {
+					gate.artifactDispatched = true;
+				},
+			}),
 		},
 		withoutMechanics(enabled),
 		),

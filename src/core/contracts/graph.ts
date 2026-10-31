@@ -300,6 +300,25 @@ export interface Cluster {
 	members: string[];
 }
 
+export type NodeReviewState = "retest" | "due" | "unpracticed" | "fresh";
+
+export interface NodePracticeStats {
+	/** Total concluded practice problems that targeted this proposition. */
+	attempts: number;
+	/** Consecutive clean solves ("solved" with retest: false) at the tail. */
+	streak: number;
+	/** ISO timestamp of the most recent concluded practice problem. */
+	lastPracticedAt: string | null;
+	/** Outcome of the most recent concluded practice problem. */
+	lastOutcome: "solved" | "solvedWithHints" | "movedOn" | "surrendered" | "dismissed" | null;
+	/** True when the most recent problem flagged retest: true or was not cleanly solved. */
+	needsRetest: boolean;
+	/** Derived spaced-retrieval state at read time. */
+	state: NodeReviewState;
+	/** When state === "fresh", ISO timestamp when the current spacing interval expires. */
+	nextDueAt: string | null;
+}
+
 export interface GraphSnapshot {
 	/** Proposition nodes + the DERIVED implication nodes (one per chain,
 	 *  id = chain id) — what the canvas renders. */
@@ -344,6 +363,8 @@ export interface GraphSnapshot {
 	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
 	 *  the view then falls back to its own one-shot forceAtlas2 pass. */
 	positions?: Record<string, Position>;
+	/** Derived spaced-retrieval statistics per proposition node id. */
+	practiceStats?: Record<string, NodePracticeStats>;
 }
 
 /** A node's resting position in layout space (the positions ledger). */

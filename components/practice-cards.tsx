@@ -2,7 +2,13 @@
 
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
-import type { ArtifactPartProps } from "@/src/core";
+import {
+	formatFeynmanRatingLabel,
+	isFeynmanMode,
+	resolveFeynmanScorecard,
+	type ArtifactPartProps,
+	type FeynmanRating,
+} from "@/src/core";
 
 /**
  * The practice transcript cards (practice sessions, owner design
@@ -60,11 +66,22 @@ export function ProblemCard({ part }: ArtifactPartProps) {
 	// statement — same container + eyebrow discipline as the answered card
 	// and the dock (which mirrors this in Slice D). The commitment never
 	// renders — only the call's statement.
-	const input = (part.input ?? {}) as { statement?: string };
+	const input = (part.input ?? {}) as { statement?: string; mode?: unknown };
 	const statement = typeof input.statement === "string" ? input.statement : "";
+	const feynman = isFeynmanMode(input.mode);
 	return (
 		<div data-testid="problem-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
-			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
+			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<span>Problem</span>
+				{feynman && (
+					<span
+						data-testid="problem-card-feynman-badge"
+						className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
+					>
+						Teach back · Feynman
+					</span>
+				)}
+			</div>
 			<div className="lh-prose text-[15px]">
 				<ToolContentResponse>{statement}</ToolContentResponse>
 			</div>
@@ -93,6 +110,12 @@ const OUTCOME_CHIP: Record<string, string> = {
 	dismissed: "bg-muted text-muted-foreground",
 };
 
+const FEYNMAN_PILLAR_CHIP: Record<FeynmanRating, string> = {
+	strong: "bg-green-500/15 text-green-500",
+	partial: "bg-amber-500/15 text-amber-500",
+	gap: "bg-red-500/15 text-red-500",
+};
+
 export function ConcludeCard({ part }: ArtifactPartProps) {
 	// The conclusion redesigned (owner round, 2026-10-05): the SOLUTION is
 	// the hero — the modelSolution committed at pose time (part.reveal, the
@@ -100,11 +123,19 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	// below in the quiz-explanation register (small, muted, low-key).
 	// Nothing collapsible. Legacy inputs (pre-slim records) that carry
 	// their own solutionReveal fall back to it.
-	const input = (part.input ?? {}) as { outcome?: string; verdict?: string; solutionReveal?: string };
+	const input = (part.input ?? {}) as {
+		outcome?: string;
+		verdict?: string;
+		solutionReveal?: string;
+		missClass?: unknown;
+		feynmanScorecard?: unknown;
+	};
+	const problemInput = (part.problemInput ?? {}) as { mode?: unknown; target?: unknown };
 	const outcome = typeof input.outcome === "string" ? input.outcome : "";
 	const verdict = typeof input.verdict === "string" ? input.verdict : "";
 	const reveal =
 		typeof part.reveal === "string" ? part.reveal : typeof input.solutionReveal === "string" ? input.solutionReveal : "";
+	const scorecard = resolveFeynmanScorecard(input, problemInput);
 
 	// The dismissal synthesis: no verdict, no reveal — one muted line (the
 	// learner clicked; the record needs only the fact).
@@ -136,6 +167,57 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 					<ToolContentResponse>{verdict}</ToolContentResponse>
 				</div>
 			)}
+			{scorecard && (
+				<div
+					data-testid="feynman-scorecard"
+					className="mt-2.5 rounded-lg border border-border/70 bg-background/50 px-3 py-2 text-xs"
+				>
+					<div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+						Feynman Scorecard
+					</div>
+					<div className="grid grid-cols-3 gap-2">
+						{(
+							[
+								{ key: "clarity", label: "Clarity", rating: scorecard.clarity },
+								{ key: "jargonFree", label: "Jargon-free", rating: scorecard.jargonFree },
+								{ key: "causalChain", label: "Causal chain", rating: scorecard.causalChain },
+							] as const
+						).map((pillar) => (
+							<div
+								key={pillar.key}
+								data-testid={`feynman-pillar-${pillar.key}`}
+								className="flex items-center justify-between gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1"
+							>
+								<span className="text-muted-foreground">{pillar.label}</span>
+								<span
+									className={cn(
+										"rounded px-1.5 py-0.5 text-[10px] font-medium",
+										FEYNMAN_PILLAR_CHIP[pillar.rating],
+									)}
+								>
+									{formatFeynmanRatingLabel(pillar.rating)}
+								</span>
+							</div>
+						))}
+					</div>
+					{scorecard.jargonFlags && scorecard.jargonFlags.length > 0 && (
+						<div
+							data-testid="feynman-jargon-flags"
+							className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-1.5 text-[11px]"
+						>
+							<span className="text-muted-foreground">Jargon unpacked:</span>
+							{scorecard.jargonFlags.map((flag, idx) => (
+								<span
+									key={idx}
+									className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-500"
+								>
+									{flag}
+								</span>
+							))}
+						</div>
+					)}
+				</div>
+			)}
 			{/* Then the divider, then the labeled model solution (Slice G: the
 			    hero is the pose's commitment, verbatim). */}
 			{reveal.length > 0 && (
@@ -151,7 +233,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			)}
 			<MetadataPopover
 				concludeInput={input}
-				problemInput={(part.problemInput ?? {}) as { mode?: unknown; target?: unknown }}
+				problemInput={problemInput}
 			/>
 		</div>
 	);

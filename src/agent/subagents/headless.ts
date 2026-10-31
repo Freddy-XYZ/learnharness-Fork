@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { PATHS } from "../../../config.ts";
 import { standardFontsDir } from "./pdf-ops";
 
 /**
@@ -143,18 +143,39 @@ export function browserServiceSpawnEnv(
 	return out;
 }
 
+const PACKAGED_MAC_BINARY = "/Applications/LearnHarness.app/Contents/MacOS/LearnHarness";
+
 /** The helper binary: inside the packaged app the server runs under
  *  ELECTRON_RUN_AS_NODE so process.execPath IS the app binary; in dev
- *  (plain node) the electron package resolves to the dev binary path. */
+ *  (plain node / Turbopack chunks) resolve `node_modules/electron/path.txt`
+ *  directly from PATHS.root so Turbopack never rewrites `electron/index.js`'s
+ *  `__dirname` to `/ROOT/node_modules/electron`. Falls back to the installed
+ *  macOS app bundle when present. */
 export function browserServiceBinary(): string | null {
 	if (process.versions.electron) return process.execPath;
 	try {
-		const req = createRequire(import.meta.url);
-		const p = req("electron") as unknown as string;
-		return typeof p === "string" && p.length > 0 ? p : null;
+		const electronDir = path.join(PATHS.root, "node_modules", "electron");
+		const pathFile = path.join(electronDir, "path.txt");
+		if (fs.existsSync(pathFile)) {
+			const rel = fs.readFileSync(pathFile, "utf8").trim();
+			if (rel) {
+				const fullPath = process.env.ELECTRON_OVERRIDE_DIST_PATH
+					? path.join(process.env.ELECTRON_OVERRIDE_DIST_PATH, rel)
+					: path.join(electronDir, "dist", rel);
+				if (fs.existsSync(fullPath)) return fullPath;
+			}
+		}
 	} catch {
-		return null;
+		/* fall through */
 	}
+	if (process.platform === "darwin") {
+		try {
+			if (fs.existsSync(PACKAGED_MAC_BINARY)) return PACKAGED_MAC_BINARY;
+		} catch {
+			/* not readable */
+		}
+	}
+	return null;
 }
 
 const BROWSER_SERVICE_TIMEOUT_MS = 15_000;
@@ -172,14 +193,15 @@ async function connectBrowserService(): Promise<import("puppeteer-core").Browser
 	if (port === null) {
 		const binary = browserServiceBinary();
 		if (!binary) return null;
-		// Packaged: execPath runs the bundled app (flag reaches main.cjs).
-		// Dev: the bare electron binary needs the repo root as the app arg —
-		// flagless it would open Electron's default app instead of our shell.
-		const appArgs = process.versions.electron ? ["--browser-service"] : [
-			// src/agent/subagents → repo root
-			path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
-			"--browser-service",
-		];
+		// Packaged (or installed LearnHarness.app fallback): binary already
+		// boots main.cjs via its embedded app.asar.
+		// Dev Electron.app: needs PATHS.root as the app arg — flagless it
+		// would open Electron's default app instead of our shell.
+		const isPackagedBinary =
+			Boolean(process.versions.electron) || binary === PACKAGED_MAC_BINARY;
+		const appArgs = isPackagedBinary
+			? ["--browser-service"]
+			: [PATHS.root, "--browser-service"];
 		const proc = spawn(binary, appArgs, {
 			// Cast: the sanitizer is pure over a loose record; NODE_ENV is
 			// always present in a real process.env.

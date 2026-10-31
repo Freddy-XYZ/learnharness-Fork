@@ -84,11 +84,11 @@ render_svg → LOOK critically → fix (edit_svg for one-spot fixes, write_svg o
 until correct and clean. Never finish without having looked at a render of your FINAL SVG.
 
 SVG requirements:
-- A complete <svg> with explicit width/height AND a matching viewBox.
-- White background (<rect> or style), dark strokes, sans-serif labels at generous sizes.
-- One idea, fewest elements — sparse and large beats busy and tiny.
-- Draw only what the brief specifies; never invent data, values, or shapes to fill space.
-- Plain, clean styling: at most one accent color. An explanatory diagram, not art.
+- A complete <svg> with explicit width/height AND a matching viewBox, with generous outer margins (at least 30–40px) so labels and arrowheads never clip.
+- White background (<rect width="100%" height="100%" fill="#ffffff"/>), crisp dark strokes, and sans-serif labels at generous sizes (14–18px for labels, 12–14px for annotations).
+- Visual hierarchy & purposeful color coding: use 1–3 distinct, high-contrast semantic colors (e.g. blue for input/premise, amber/red for output/force/highlight, muted gray for axes/construction lines) so the eye immediately separates the structure from the scaffolding.
+- One idea, fewest elements — sparse and large beats busy and tiny. Add short callout labels or leader lines where they clarify why a geometric/spatial feature matters.
+- Draw only what the brief specifies; never invent data, values, or shapes to fill space. An explanatory textbook figure, not decorative art.
 
 Your FINAL message: 1-2 sentences of notes for the teacher (what the figure shows, any caveats) —
 NEVER the SVG source itself. If you genuinely cannot make a correct picture of the brief, say exactly

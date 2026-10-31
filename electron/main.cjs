@@ -349,9 +349,10 @@ function createWindow(url) {
 	// loopback-origin only — Electron's default is auto-approve-everything,
 	// and we do not ship that.
 	// "local-fonts": the appearance section's reading-font picker (2026-09-26).
-	const allowedPermissions = new Set(["media", "clipboard-sanitized-write", "local-fonts"]);
+	const allowedPermissions = new Set(["media", "mediaKeySystem", "clipboard-sanitized-write", "local-fonts"]);
 	const fromOwnOrigin = (origin, permission) =>
-		origin === allowedOrigin() && allowedPermissions.has(permission);
+		((origin === allowedOrigin() || (origin === "https://sdk.scdn.co" && (permission === "media" || permission === "mediaKeySystem"))) &&
+			allowedPermissions.has(permission));
 	session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
 		const requestOrigin = details.requestingUrl ? new URL(details.requestingUrl).origin : null;
 		callback(fromOwnOrigin(requestOrigin, permission));
@@ -381,7 +382,12 @@ function createWindow(url) {
 		win.webContents.send("lh:zoom", win.webContents.getZoomFactor());
 	});
 	win.webContents.on("before-input-event", (event, input) => {
-		if (input.type !== "keyDown" || !(input.meta || input.control)) return;
+		if (input.type !== "keyDown") return;
+		if (input.key === "F5" || ((input.meta || input.control) && input.key.toLowerCase() === "r")) {
+			event.preventDefault();
+			return;
+		}
+		if (!(input.meta || input.control)) return;
 		if (input.key === "=" || input.key === "+") zoomStep(win, +1);
 		else if (input.key === "-") zoomStep(win, -1);
 		else if (input.key === "0") applyZoom(win, 1);
@@ -600,7 +606,6 @@ function installMenu() {
 		{
 			label: "View",
 			submenu: [
-				{ role: "reload" },
 				{ role: "toggleDevTools" },
 				{ type: "separator" },
 				// OWNED zoom (see applyZoom): the roles change zoomLevel

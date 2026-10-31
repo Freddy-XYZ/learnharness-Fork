@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { derivePlanStatuses, derivedNodeStatus, type PlanTree, type PlanToolResult } from "../src/core/contracts.ts";
 import { createTree, emptyTree, PlanTreeError } from "../src/core/plan-tree.ts";
+import { isLessonPlanComplete } from "../components/session-wrap-up.tsx";
 import { planTools } from "../src/agent/tools/plan.ts";
 import { parseMermaidPlan } from "../src/agent/tools/mermaid-plan.ts";
 import { chatStore } from "../src/store/chats.ts";
@@ -449,5 +450,54 @@ describe("derivePlanStatuses: tagged explain calls move the map like quiz calls"
 		]);
 		assert.equal(st.current, "b");
 		assert.deepEqual([...st.visited], ["a"]);
+	});
+});
+
+describe("isLessonPlanComplete (session wrap-up gate)", () => {
+	const plan: PlanTree = {
+		nodes: [
+			{ id: "a", title: "Step A" },
+			{ id: "b", title: "Step B" },
+		],
+		edges: [{ from: "a", to: "b" }],
+		version: 1,
+	};
+	const msg = (...parts: Array<{ type: string; state?: string; input?: unknown }>) => ({ parts });
+
+	it("returns false when upcoming nodes remain", () => {
+		const messages = [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", type: "check" } }),
+		];
+		assert.equal(isLessonPlanComplete(plan, messages, false, false), false);
+	});
+
+	it("returns false when the final node only has a predict call or an unanswered check", () => {
+		const onlyPredict = [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", type: "check" } }),
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "b", type: "predict" } }),
+		];
+		assert.equal(isLessonPlanComplete(plan, onlyPredict, false, false), false);
+
+		const pendingCheck = [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", type: "check" } }),
+			msg({ type: "tool-quiz", state: "input-available", input: { nodeId: "b", type: "check" } }),
+		];
+		assert.equal(isLessonPlanComplete(plan, pendingCheck, false, true), false);
+	});
+
+	it("returns false while a turn is still busy", () => {
+		const messages = [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", type: "check" } }),
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "b", type: "check" } }),
+		];
+		assert.equal(isLessonPlanComplete(plan, messages, true, false), false);
+	});
+
+	it("returns true once all plan nodes are covered, the final check is answered, and the session is idle", () => {
+		const messages = [
+			msg({ type: "tool-quiz", state: "output-available", input: { nodeId: "a", type: "check" } }),
+			msg({ type: "tool-explain", state: "output-available", input: { nodeId: "b", type: "check" } }),
+		];
+		assert.equal(isLessonPlanComplete(plan, messages, false, false), true);
 	});
 });
