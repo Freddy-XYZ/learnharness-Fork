@@ -93,6 +93,34 @@ export const CUSTOM_PROVIDER_INFO: ProviderKeyInfo = {
 	label: CUSTOM_PROVIDER.label,
 };
 
+/** Starts the Spotify OAuth popup; resolves to an error message or null.
+ *  Browser: opens a blank popup synchronously (before the first await, so
+ *  Safari still counts the click) and points it at Spotify once the server
+ *  returns the authorize URL. Desktop: Electron routes window.open to the
+ *  system browser and always returns null, so it opens the real URL once. */
+export async function openSpotifyLogin({ isDesktop, open, start }: {
+	isDesktop: boolean;
+	open: (url: string) => Window | null;
+	start: () => Promise<{ authorizeUrl?: string; error?: string }>;
+}): Promise<string | null> {
+	const popup = isDesktop ? null : open("");
+	let result: { authorizeUrl?: string; error?: string };
+	try {
+		result = await start();
+	} catch {
+		result = {};
+	}
+	if (!result.authorizeUrl) {
+		popup?.close();
+		return result.error ?? "Failed to start Spotify login.";
+	}
+	if (popup) {
+		popup.location.href = result.authorizeUrl;
+		return null;
+	}
+	return (open(result.authorizeUrl) || isDesktop) ? null : "Popup blocked — allow popups for this site and try again.";
+}
+
 /** The classification driving the table groups. Pure — exported for
  *  tests. OpenRouter is un-pinned (wave-5 owner ruling): no synthesis,
  *  no special row — it rides the same provider classification. */
@@ -511,23 +539,21 @@ export function KeysSection({
 		if (spotifyBusy) return;
 		setSpotifyBusy(true);
 		setSpotifyError(null);
-		try {
-			const res = await fetch("/api/spotify/status", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ action: "login", origin: window.location.origin }),
-			});
-			const data = (await res.json().catch(() => ({}))) as { ok?: boolean; authorizeUrl?: string; error?: string };
-			if (!res.ok || !data.authorizeUrl) {
-				setSpotifyError(data.error ?? "Failed to start Spotify login.");
-			} else {
-				window.open(data.authorizeUrl, "lh-spotify-auth", "width=520,height=720");
-			}
-		} catch {
-			setSpotifyError("Failed to start Spotify login.");
-		} finally {
-			setSpotifyBusy(false);
-		}
+		const error = await openSpotifyLogin({
+			isDesktop: Boolean(window.lh),
+			open: (url) => window.open(url, "lh-spotify-auth", "width=520,height=720"),
+			start: async () => {
+				const res = await fetch("/api/spotify/status", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ action: "login", origin: window.location.origin }),
+				});
+				const data = (await res.json().catch(() => ({}))) as { authorizeUrl?: string; error?: string };
+				return res.ok ? data : { error: data.error };
+			},
+		});
+		setSpotifyError(error);
+		setSpotifyBusy(false);
 	}
 
 	async function disconnectSpotifyAccount() {

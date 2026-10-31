@@ -12,7 +12,7 @@ import {
 	SPOTIFY_SCOPES,
 	validateKeyShape,
 } from "../src/core/index.ts";
-import { classifyKeys } from "../components/settings/keys-section.tsx";
+import { classifyKeys, openSpotifyLogin } from "../components/settings/keys-section.tsx";
 import { SpotifyPlayerBody } from "../components/spotify-player.tsx";
 
 describe("Spotify core utilities & key validation", () => {
@@ -90,6 +90,54 @@ describe("classifyKeys with SPOTIFY_CLIENT_ID", () => {
 		assert.equal(res.spotifyRow.masked, "…8f90 (32 chars)");
 		assert.equal(res.providerRows.length, 0);
 		assert.equal(res.unknownRows.length, 0);
+	});
+});
+
+describe("openSpotifyLogin popup handling", () => {
+	const AUTH = "https://accounts.spotify.com/authorize?x=1";
+	function fakePopup() {
+		const popup = { closed: false, location: { href: "" }, close() { popup.closed = true; } };
+		return popup;
+	}
+
+	it("browser: opens the popup before the server answers, then points it at Spotify", async () => {
+		const popup = fakePopup();
+		const calls: string[] = [];
+		const error = await openSpotifyLogin({
+			isDesktop: false,
+			open: (url) => (calls.push(`open:${url}`), popup as unknown as Window),
+			start: async () => (calls.push("start"), { authorizeUrl: AUTH }),
+		});
+		assert.equal(error, null);
+		assert.deepEqual(calls, ["open:", "start"]);
+		assert.equal(popup.location.href, AUTH);
+	});
+
+	it("browser: closes the blank popup and reports the server error", async () => {
+		const popup = fakePopup();
+		const error = await openSpotifyLogin({
+			isDesktop: false,
+			open: () => popup as unknown as Window,
+			start: async () => ({ error: "Please save your SPOTIFY_CLIENT_ID first." }),
+		});
+		assert.equal(error, "Please save your SPOTIFY_CLIENT_ID first.");
+		assert.equal(popup.closed, true);
+	});
+
+	it("browser: reports a blocked popup", async () => {
+		const error = await openSpotifyLogin({ isDesktop: false, open: () => null, start: async () => ({ authorizeUrl: AUTH }) });
+		assert.match(error ?? "", /Popup blocked/);
+	});
+
+	it("desktop: opens only the real URL and never reports Electron's null as blocked", async () => {
+		const opened: string[] = [];
+		const error = await openSpotifyLogin({
+			isDesktop: true,
+			open: (url) => (opened.push(url), null),
+			start: async () => ({ authorizeUrl: AUTH }),
+		});
+		assert.equal(error, null);
+		assert.deepEqual(opened, [AUTH]);
 	});
 });
 
