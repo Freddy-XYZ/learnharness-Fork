@@ -884,7 +884,7 @@ export function SpotifyFloatingPlayer() {
 			const res = await fetch("/api/spotify/status", {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ action: "login", origin: window.location.origin }),
+				body: JSON.stringify({ action: "login" }),
 			});
 			const data = (await res.json()) as { ok?: boolean; authorizeUrl?: string; error?: string };
 			if (data.authorizeUrl) {

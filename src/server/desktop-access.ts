@@ -15,3 +15,21 @@ export function desktopAPIAuthorized(
 	const wanted = Buffer.from(expected);
 	return actual.length === wanted.length && timingSafeEqual(actual, wanted);
 }
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** DNS-rebinding + CSRF guard for EVERY mode and path (pages server-render
+ * chat content too). The server only listens on loopback, so a foreign Host
+ * is a rebound name and a foreign Origin is another site posting in.
+ * Requests with neither header are non-browser clients (scripts, Electron
+ * main) and pass; browsers always send Host. */
+export function localRequestAllowed(headers: Headers): boolean {
+	const host = headers.get("host");
+	try {
+		if (host && !LOOPBACK_HOSTS.has(new URL(`http://${host}`).hostname)) return false;
+		const origin = headers.get("origin");
+		return origin === null || new URL(origin).host === host;
+	} catch {
+		return false; // unparsable Host, or Origin "null" (sandboxed frames, file:)
+	}
+}

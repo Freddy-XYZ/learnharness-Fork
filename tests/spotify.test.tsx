@@ -257,3 +257,40 @@ describe("SpotifyPlayerBody UI rendering", () => {
 		assert.match(html, /Deep Focus Study/);
 	});
 });
+
+describe("Spotify OAuth state expiry", () => {
+	it("rejects a callback whose login is older than the TTL, before any token exchange", async (t) => {
+		const fs = await import("node:fs");
+		const os = await import("node:os");
+		const path = await import("node:path");
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-spotify-"));
+		t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+		const saved = { data: process.env.LH_DATA_DIR, id: process.env.SPOTIFY_CLIENT_ID };
+		t.after(() => {
+			if (saved.data === undefined) delete process.env.LH_DATA_DIR; else process.env.LH_DATA_DIR = saved.data;
+			if (saved.id === undefined) delete process.env.SPOTIFY_CLIENT_ID; else process.env.SPOTIFY_CLIENT_ID = saved.id;
+		});
+		process.env.LH_DATA_DIR = dir;
+		process.env.SPOTIFY_CLIENT_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+		const { startSpotifyLogin, completeSpotifyCallback, SPOTIFY_OAUTH_STATE_TTL_MS } = await import("../src/server/spotify.ts");
+		const fetchCalls: string[] = [];
+		t.mock.method(globalThis, "fetch", async (url: string) => {
+			fetchCalls.push(String(url));
+			return new Response("{}", { status: 400 });
+		});
+
+		const login = startSpotifyLogin("http://127.0.0.1:3000");
+		assert.ok(login.ok);
+		const state = new URL(login.authorizeUrl).searchParams.get("state")!;
+		const now = Date.now();
+		t.mock.method(Date, "now", () => now + SPOTIFY_OAUTH_STATE_TTL_MS + 1);
+		const expired = await completeSpotifyCallback("code", state, "http://127.0.0.1:3000");
+		assert.deepEqual(expired, { ok: false, error: "Invalid or expired OAuth state. Please try connecting again." });
+		assert.equal(fetchCalls.length, 0);
+
+		(Date.now as unknown as { mock: { mockImplementation(f: () => number): void } }).mock.mockImplementation(() => now + 1000);
+		const fresh = await completeSpotifyCallback("code", state, "http://127.0.0.1:3000");
+		assert.equal(fresh.ok, false);
+		assert.deepEqual(fetchCalls, ["https://accounts.spotify.com/api/token"], "a fresh state reaches the token exchange");
+	});
+});

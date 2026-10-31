@@ -17,9 +17,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-	let body: { action?: string; origin?: string } = {};
+	let body: { action?: string } = {};
 	try {
-		body = (await req.json()) as { action?: string; origin?: string };
+		body = (await req.json()) as { action?: string };
 	} catch {
 		/* empty body */
 	}
@@ -30,8 +30,9 @@ export async function POST(req: Request) {
 	}
 
 	if (body.action === "login") {
-		const reqUrl = new URL(req.url);
-		const origin = body.origin || reqUrl.origin;
+		// Browser-set Origin (proxy already pinned it to this loopback Host),
+		// never a client-chosen value: it decides the OAuth redirect_uri.
+		const origin = req.headers.get("origin") ?? new URL(req.url).origin;
 		const res = startSpotifyLogin(origin);
 		if (!res.ok) {
 			return Response.json({ ok: false, error: res.error }, { status: 400 });

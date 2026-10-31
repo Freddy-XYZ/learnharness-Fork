@@ -30,6 +30,7 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { externalURLAllowed } = require("./external-url.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -364,11 +365,11 @@ function createWindow(url) {
 	win.webContents.on("will-navigate", (event, target) => {
 		if (new URL(target).origin !== allowedOrigin()) {
 			event.preventDefault();
-			void shell.openExternal(target);
+			if (externalURLAllowed(target)) void shell.openExternal(target);
 		}
 	});
 	win.webContents.setWindowOpenHandler(({ url: target }) => {
-		void shell.openExternal(target);
+		if (externalURLAllowed(target)) void shell.openExternal(target);
 		return { action: "deny" };
 	});
 
