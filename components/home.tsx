@@ -6,7 +6,7 @@ import { CornerDownLeftIcon, DumbbellIcon } from "lucide-react";
 import { GraphView } from "@/components/graph-view";
 import { MinimalHome } from "@/components/minimal-home";
 import { SetupDialog } from "@/components/setup-dialog";
-import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
+import { ComposerActions, NodePickerControl, ReviewDueControl } from "@/components/composer-actions";
 import { useModelSetup, selectedModelUnavailable, openModelPicker, ZeroKeysPill } from "@/components/setup-cta";
 import { DictationBar, joinDictation, useDictation } from "@/components/dictation";
 import { useFieldCycle } from "@/components/field-cycle";
@@ -15,7 +15,7 @@ import { StatsBar } from "@/components/stats-bar";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { PathInput } from "@/components/path-input";
 import { SessionStarter } from "@/components/start-session";
-import type { TurnUsage } from "@/src/core";
+import { buildFeynmanPrompt, type DueReviewSelection, type TurnUsage } from "@/src/core";
 
 /**
  * Home — the knowledge graph is the main view, full-bleed edge to edge
@@ -94,6 +94,7 @@ export function Home({
 	const [mode, setMode] = useState<"teach" | "practice">("teach");
 	const [practiceProps, setPracticeProps] = useState<{ id: string; name: string; statement: string }[]>([]);
 	const [chainSelectOpen, setChainSelectOpen] = useState(false);
+	const [dueReview, setDueReview] = useState<DueReviewSelection | null>(null);
 	// The chain table is CONTROLLED off this id set (the lifted pick).
 	const pickedIds = useMemo(() => new Set(practiceProps.map((p) => p.id)), [practiceProps]);
 
@@ -183,6 +184,21 @@ export function Home({
 						practiceSelection={pickedIds}
 						onPracticeSelectionChange={setPracticeProps}
 						onChainSelectClose={() => setChainSelectOpen(false)}
+						onNodeAction={(nextMode, label) => {
+							setMode(nextMode === "teach" ? "teach" : "practice");
+							if (topicRef.current.trim() === "") {
+								const nextTopic =
+									nextMode === "feynman"
+										? buildFeynmanPrompt(label)
+										: nextMode === "practice"
+											? `Practice ${label}`
+											: `Go deeper on ${label}`;
+								topicRef.current = nextTopic;
+								setTopic(nextTopic);
+							}
+							topicInputRef.current?.focus();
+						}}
+						onDueReviewChange={setDueReview}
 					/>
 				) : (
 					<MinimalHome
@@ -190,6 +206,7 @@ export function Home({
 						practiceSelection={pickedIds}
 						onPracticeSelectionChange={setPracticeProps}
 						onChainSelectClose={() => setChainSelectOpen(false)}
+						onDueReviewChange={setDueReview}
 					/>
 				)}
 			</main>
@@ -226,6 +243,27 @@ export function Home({
 								onClear={() => setPracticeProps([])}
 							/>
 						)}
+						reviewDue={
+							dueReview && dueReview.counts.totalDue > 0 && (
+								<ReviewDueControl
+									count={dueReview.counts.totalDue}
+									retestCount={dueReview.counts.retest}
+									onReviewDue={() => {
+										setPracticeProps(dueReview.propositions);
+										setMode("practice");
+										if (topicRef.current.trim() === "") {
+											const summary = dueReview.targetNames.slice(0, 3).join(", ");
+											const nextTopic = summary
+												? `Spaced review: ${summary}`
+												: "Spaced review";
+											topicRef.current = nextTopic;
+											setTopic(nextTopic);
+										}
+										topicInputRef.current?.focus();
+									}}
+								/>
+							)
+						}
 						setup={zeroKeys ? (
 							<ZeroKeysPill inline onOpen={() => setSetupOpen(true)} />
 						) : (

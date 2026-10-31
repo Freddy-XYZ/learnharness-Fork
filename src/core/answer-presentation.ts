@@ -2,18 +2,29 @@
  * projection: answer identities, ordering, grading, and learner text remain
  * the recorded facts; only model-authored display text comes from the call. */
 import { normalizeOptions, type QuestionAnswerData } from "./question-core.ts";
-import { parseAskInput, parseExplainInput, parseQuizInput } from "./tool-parts.ts";
+import { parseAskInput, parseExplainInput, parsePronounceInput, parseQuizInput } from "./tool-parts.ts";
 import { repairMathForDisplay } from "./math-delims.ts";
 
 export function answerForPresentation(answer: QuestionAnswerData, input: unknown): QuestionAnswerData {
 	if (answer.dismissed) return answer;
 	const quiz = answer.kind === "quiz" ? parseQuizInput(input) : undefined;
 	const explain = answer.kind === "explain" ? parseExplainInput(input) : undefined;
-	const source = quiz ?? explain ?? (answer.kind === "ask" ? parseAskInput(input) : undefined);
+	const pronounce = answer.kind === "pronounce" ? parsePronounceInput(input) : undefined;
+	const source = quiz ?? explain ?? pronounce ?? (answer.kind === "ask" ? parseAskInput(input) : undefined);
 	if (!source) return answer;
 	const projected = { ...answer, questionText: source.question };
 	if (quiz) projected.explanation = quiz.explanation;
 	if (explain) projected.committed = explain.correctAnswer;
+	if (pronounce) {
+		projected.pronounce = {
+			phrase: pronounce.phrase,
+			language: pronounce.language,
+			phoneticHint: pronounce.phoneticHint,
+			translation: pronounce.translation,
+		};
+	} else if ("pronounce" in source && source.pronounce) {
+		projected.pronounce = source.pronounce;
+	}
 	if (!answer.options?.length || !("options" in source) || !source.options?.length) return projected;
 
 	const original = normalizeOptions(source.options);

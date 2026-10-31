@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Volume2Icon } from "lucide-react";
 import { ConfidenceRail } from "@/components/confidence-rail";
 import { GlyphMark } from "@/components/ui/glyph-mark";
 import { ThinkingBlock } from "@/components/thinking-block";
@@ -8,7 +9,8 @@ import { PathText } from "@/components/file-path-chip";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
 import type { QuestionAnswerData } from "@/src/core";
-import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+import { answerForPresentation, languageDisplayLabel, parseAskInput, parsePronounceInput, parseQuizInput } from "@/src/core";
+import { PronunciationFeedbackView, speakTextWithTts } from "@/components/pronunciation-trainer";
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
@@ -33,6 +35,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 
 	const isQuiz = answer.kind === "quiz";
 	const isExplain = answer.kind === "explain";
+	const isPronounce = answer.kind === "pronounce";
 	const selectedIdx = new Set(answer.answers.map((a) => a.index));
 	const correctIdx = new Set(answer.correctIndices ?? []);
 	// The question's own context rides the ORIGINAL CALL, not the answer
@@ -42,7 +45,11 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 	// snapshot (what the model sees, compactAnswerForModel) is untouched;
 	// any parse failure or absent input renders exactly the older card.
 	const askInput = answer.kind === "ask" ? parseAskInput(input) : undefined;
-	const parsedDetails = askInput?.details ?? (answer.kind === "quiz" ? parseQuizInput(input)?.details : undefined);
+	const pronounceInput = isPronounce ? parsePronounceInput(input) : undefined;
+	const parsedDetails =
+		askInput?.details ??
+		pronounceInput?.details ??
+		(answer.kind === "quiz" ? parseQuizInput(input)?.details : undefined);
 	const descByIndex = new Map((askInput?.options ?? []).map((o, i) => [i + 1, o.description]));
 
 	return (
@@ -71,20 +78,24 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					? "Probe"
 					: answer.tool === "recall"
 						? "Recall"
-						: isQuiz
+						: isPronounce
+							? "Pronounce"
+							: isQuiz
 								? answer.questionType === "predict"
 									? "Prediction"
 									: "Check"
-									: isExplain
-										? "Explain"
-											: "Question"}
-				{isQuiz &&
+								: isExplain
+									? "Explain"
+									: "Question"}
+				{(isQuiz || isPronounce) &&
 					(answer.dontKnow ? (
 						<span className="rounded bg-muted px-1.5 py-0.5">didn't know</span>
 					) : answer.correct ? (
 						<span className="rounded bg-green-500/15 px-1.5 py-0.5 text-green-500">correct</span>
 					) : (
-						<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">incorrect</span>
+						<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">
+							{isPronounce ? "needs practice" : "incorrect"}
+						</span>
 					))}
 			</div>
 			<div className="mb-3 font-medium">
@@ -96,6 +107,36 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 				<div className="mb-3 text-sm text-muted-foreground">
 					<ToolContentResponse>{parsedDetails}</ToolContentResponse>
 				</div>
+			)}
+
+			{answer.pronounce && (
+				<div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+					<div>
+						<div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+							Ziel-Aussprache ({languageDisplayLabel(answer.pronounce.language)})
+						</div>
+						<div className="text-base font-semibold">{answer.pronounce.phrase}</div>
+						{answer.pronounce.phoneticHint && (
+							<div className="font-mono text-xs text-muted-foreground">[{answer.pronounce.phoneticHint}]</div>
+						)}
+					</div>
+					<button
+						type="button"
+						onClick={() => speakTextWithTts(answer.pronounce!.phrase, answer.pronounce!.language, 0.9)}
+						className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-accent cursor-pointer"
+					>
+						<Volume2Icon className="size-3.5" />
+						Anhören
+					</button>
+				</div>
+			)}
+
+			{answer.pronunciation && (
+				<PronunciationFeedbackView
+					evaluation={answer.pronunciation}
+					language={answer.pronounce?.language ?? answer.pronunciation.language}
+					className="mb-3"
+				/>
 			)}
 
 			{((answer.options?.length ?? 0) > 0 || answer.other) && (
@@ -160,7 +201,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 				</div>
 			)}
 
-			{answer.text && <div className="lh-prose mt-2 whitespace-pre-wrap">“<PathText text={answer.text} />”</div>}
+			{answer.text && !answer.pronunciation && <div className="lh-prose mt-2 whitespace-pre-wrap">“<PathText text={answer.text} />”</div>}
 
 			{/* The confidence record (owner round 6): the slider's rail, disc
 			    removed — the missing handle itself says "this is a record, not a

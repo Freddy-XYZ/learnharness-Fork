@@ -116,7 +116,7 @@ export const DICTATION_KEYLESS = "Dictation needs a Deepgram key";
  *  DEEPGRAM_API_KEY) is the route's ONLY 503 — the raw message is
  *  dev-speak, so the error becomes the short client-authored line
  *  (zero-keys wave, owner 2026-09-25). */
-async function mintFreshToken(): Promise<string> {
+export async function mintFreshToken(): Promise<string> {
 	const res = await fetch("/api/stt/token");
 	const data = (await res.json()) as { token?: string; message?: string };
 	if (!res.ok || !data.token) {
@@ -162,7 +162,7 @@ export function createWarmMinter(
 	return m;
 }
 
-const warmTokens = createWarmMinter(mintFreshToken);
+export const warmTokens = createWarmMinter(mintFreshToken);
 
 /* Persistent capture graph (mitigation C, owner 2026-09-27): one
  * app-lifetime AudioContext + a module-load memo. Created under the
@@ -171,7 +171,7 @@ const warmTokens = createWarmMinter(mintFreshToken);
 let sharedCtx: AudioContext | null = null;
 let workletModule: Promise<void> | null = null;
 
-function ensureAudioGraph(): { ctx: AudioContext; module: Promise<void> } {
+export function ensureAudioGraph(): { ctx: AudioContext; module: Promise<void> } {
 	if (!sharedCtx) sharedCtx = new AudioContext({ sampleRate: 16000 });
 	if (!workletModule) {
 		workletModule = sharedCtx.audioWorklet.addModule("/worklets/pcm-capture.js").catch((e: unknown) => {

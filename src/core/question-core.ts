@@ -19,6 +19,11 @@
 
 import { Type, type Static } from "typebox";
 import { stripModelValueDebris } from "./value-debris.ts";
+import {
+	pronounceSpecSchema,
+	type PronounceSpec,
+	type PronunciationEvaluation,
+} from "./pronunciation.ts";
 
 // ─── shared types ───────────────────────────────────────────────────────────
 
@@ -190,6 +195,7 @@ export const quizInputBase = Type.Object({
 	details: Type.Optional(
 		Type.String({ description: "Optional extra context or instructions shown under the question." }),
 	),
+	pronounce: Type.Optional(pronounceSpecSchema),
 });
 
 // The TEACH-side quiz object: the shared base + the plan-position field
@@ -224,13 +230,13 @@ export function normalizeQuizType(raw: unknown): QuizQuestionType | undefined {
  *  2026-10-09): a teach-phase CHECK collapses behind the "Check your
  *  understanding" reveal — a prediction NEVER does (it precedes the
  *  teaching and gates it; collapsing it would invert the cycle), and
- *  neither do probe/plan questions or ask. Both teach quizzing tools
- *  (quiz and explain) obey the same law. chat.tsx calls this for its
+ *  neither do probe/plan questions or ask. Teach quizzing tools
+ *  (quiz, explain, pronounce) obey the same law. chat.tsx calls this for its
  *  pending question; the reading-thinking field mounts on the same
  *  truth. Records that predate the `type` field carry none — they render
  *  as checks, the standing default. */
 export function questionNeedsReveal(tool: string, rawInput: unknown, phase: string): boolean {
-	if ((tool !== "quiz" && tool !== "explain") || phase !== "teach") return false;
+	if ((tool !== "quiz" && tool !== "explain" && tool !== "pronounce") || phase !== "teach") return false;
 	return normalizeQuizType((rawInput as { type?: unknown } | null)?.type) !== "predict";
 }
 
@@ -315,6 +321,7 @@ export const explainInputBase = Type.Object({
 	details: Type.Optional(
 		Type.String({ description: "Optional extra context or instructions shown under the question." }),
 	),
+	pronounce: Type.Optional(pronounceSpecSchema),
 });
 
 /** The TEACH-side explain object: base + the plan-position field (same
@@ -356,10 +363,67 @@ export function explainInputProblems(input: { correctAnswer: string }): string[]
 	return [];
 }
 
+// ─── the pronounce tool (spoken language & pronunciation validation, Wave 6) ──
+
+export const pronounceInputBase = Type.Object({
+	question: Type.String({
+		description:
+			"The speaking instruction or prompt shown to the learner (e.g. 'Sprich diesen Satz laut auf Spanisch aus:'). ONE exercise per turn.",
+	}),
+	phrase: Type.String({
+		description:
+			"REQUIRED. The exact target word or sentence in the target language that the learner must speak aloud (e.g. 'Buenos días, ¿cómo estás?').",
+	}),
+	language: Type.String({
+		description:
+			"REQUIRED. BCP-47 language code for Deepgram speech recognition & TTS (e.g. 'es', 'en', 'fr', 'it', 'pt', 'de', 'nl', 'ja', 'zh', 'ko', 'ru').",
+	}),
+	phoneticHint: Type.Optional(
+		Type.String({
+			description:
+				"Optional pronunciation guide or syllable stress hint shown to the learner (e.g. 'bwe-nos DEE-as — betone das í').",
+		}),
+	),
+	translation: Type.Optional(
+		Type.String({
+			description: "Optional translation or meaning of the target phrase.",
+		}),
+	),
+	details: Type.Optional(
+		Type.String({ description: "Optional extra context or instructions shown under the question." }),
+	),
+});
+
+export const pronounceInputObject = Type.Object({
+	type: predictCheckType,
+	nodeId: Type.String({
+		description:
+			"REQUIRED plan-tree node id this speaking exercise is about — must EXACTLY match one of this session's " +
+			"plan_init node slugs (validated at call time; a mismatched id is rejected back to you).",
+	}),
+	...pronounceInputBase.properties,
+});
+
+export const pronounceDisplayInputSchema = Type.Object({
+	...pronounceInputBase.properties,
+	type: Type.Optional(Type.String()),
+});
+
+export function pronounceInputProblems(input: { phrase: string; language: string }): string[] {
+	const problems: string[] = [];
+	if (input.phrase.trim().length === 0) {
+		problems.push("phrase is required — provide the target word or sentence the learner must pronounce.");
+	}
+	if (input.language.trim().length === 0) {
+		problems.push("language is required — provide a BCP-47 language code (e.g. 'es', 'en', 'fr', 'de').");
+	}
+	return problems;
+}
+
 /** The tool names that carry the quizzing mechanic — the teach seam
  *  (phases), the plan-position fold, and the pending gate all recognize
  *  whichever is armed. */
-export const QUIZ_TOOL_NAMES = ["quiz", "explain"] as const;
+export const QUIZ_TOOL_NAMES = ["quiz", "explain", "pronounce"] as const;
 
 /** The TEACHER's quiz declaration (base + the position field). */
 export const quizInputSchema = quizInputObject;
@@ -386,6 +450,7 @@ export const askInputSchema = Type.Object({
 	multiSelect: Type.Optional(
 		Type.Boolean({ description: "Set to true to allow multiple answers to the same question." }),
 	),
+	pronounce: Type.Optional(pronounceSpecSchema),
 });
 // Ask's option sanity (labels non-empty, values distinct — ask is not
 // graded, but duplicate values break the dock's value keying) runs at the
@@ -395,6 +460,7 @@ export type QuizToolInput = Static<typeof quizInputObject>;
 export type AskToolInput = Static<typeof askInputSchema>;
 export type ExplainToolInput = Static<typeof explainInputObject>;
 export type ProbeExplainToolInput = Static<typeof explainInputBase>;
+export type PronounceToolInput = Static<typeof pronounceInputObject>;
 
 
 /** A real selected answer, in the order the options were displayed. */
@@ -404,9 +470,9 @@ export interface OptionAnswer {
 	index: number; // 1-based display index
 }
 
-export type QuestionKind = "quiz" | "ask" | "explain";
+export type QuestionKind = "quiz" | "ask" | "explain" | "pronounce";
 export type SelectMode = "single-select" | "multi-select";
-export type QuestionMode = SelectMode | "text";
+export type QuestionMode = SelectMode | "text" | "pronounce";
 
 /** Full question data — stored in the `lh_question` custom entry. */
 export interface QuestionData {
@@ -421,6 +487,8 @@ export interface QuestionData {
 	context?: string;
 	mode: QuestionMode;
 	options: QuizOption[]; // display order (post-shuffle)
+	/** Optional or dedicated pronunciation exercise specification. */
+	pronounce?: PronounceSpec;
 	// quiz only. NEVER send to the client before answering:
 	correctIndices?: number[];
 	// explain only. NEVER send to the client before answering:
@@ -463,10 +531,12 @@ export interface QuestionAnswerData {
 	 *  reading field and riding the check answer. Absent when empty. */
 	readingThinking?: string;
 	confidence?: number; // quiz only: the learner's stated probability (0-100, raw) that his selected answer is correct — never sent on "I don't know" (owner, 2026-10-01)
-	correct?: boolean; // quiz only
+	correct?: boolean; // quiz/pronounce
 	correctIndices?: number[]; // quiz only (rendering)
 	committed?: string; // explain only (rendering): the model's committed answer
 	explanation?: string; // quiz only (rendering)
+	pronounce?: PronounceSpec; // pronunciation target spec (rendering)
+	pronunciation?: PronunciationEvaluation; // Deepgram word-by-word pronunciation evaluation
 	dismissed?: boolean;
 	answeredAt: string;
 }
@@ -490,6 +560,7 @@ export interface AnswerRequest {
 	thinking?: string; // the reasoning-on-the-question channel (was `note`)
 	readingThinking?: string; // the thinking-while-reading channel (check answers)
 	confidence?: number; // quiz only: 0-100 raw probability — 50 is a real coin flip, always sent (owner, 2026-10-01)
+	pronunciation?: PronunciationEvaluation; // Deepgram word-by-word pronunciation evaluation
 }
 
 /** The confidence slider's snap stops (owner, 2026-10-01): raw probability
@@ -519,6 +590,7 @@ export interface QuestionFormDraft {
 	other: string;
 	text: string;
 	confidenceIndex: number;
+	pronunciation?: PronunciationEvaluation;
 }
 
 export interface QuestionDraft {
@@ -747,6 +819,21 @@ export function buildAnswer(qd: QuestionData, req: AnswerRequest, tool?: string)
 		// commitment. The commitment snapshots for the reveal + rendering.
 		base.committed = qd.committedAnswer;
 	}
+	if (qd.pronounce) {
+		base.pronounce = qd.pronounce;
+	}
+	if (req.pronunciation) {
+		base.pronunciation = req.pronunciation;
+		if (!base.text && req.pronunciation.transcript.trim()) {
+			base.text = req.pronunciation.transcript.trim();
+		}
+		if (qd.kind === "pronounce") {
+			base.correct = base.dontKnow ? false : req.pronunciation.passed;
+			if (!base.dontKnow && base.confidence === undefined) {
+				base.confidence = req.pronunciation.overallScorePct;
+			}
+		}
+	}
 	return base;
 }
 
@@ -791,6 +878,21 @@ export function compactAnswerForModel(ad: QuestionAnswerData): Record<string, un
 	// incorrect and carries no confidence: both stay implicit.)
 	if (ad.correct !== undefined && !ad.dontKnow) out.correct = ad.correct;
 	if (ad.confidence !== undefined) out.confidence = ad.confidence;
+	if (ad.pronunciation) {
+		out.pronunciation = {
+			targetPhrase: ad.pronunciation.targetPhrase,
+			language: ad.pronunciation.language,
+			transcript: ad.pronunciation.transcript,
+			overallScorePct: ad.pronunciation.overallScorePct,
+			passed: ad.pronunciation.passed,
+			words: ad.pronunciation.words.map((w) => ({
+				expected: w.expected,
+				spoken: w.spoken,
+				confidencePct: w.confidence !== null ? Math.round(w.confidence * 100) : null,
+				status: w.status,
+			})),
+		};
+	}
 	// Two DISTINCT thinking channels, clearly keyed so the model never
 	// conflates them (owner 2026-10-03): reasoning on the question vs
 	// thinking while reading the teaching. `note` is the pre-rename key —

@@ -30,9 +30,12 @@ import {
 	CUSTOM_MODEL_DEFAULT_MAX_TOKENS,
 	CUSTOM_PROVIDER,
 	normalizeBaseUrl,
+	SPOTIFY_CLIENT_ID_KEY,
+	SPOTIFY_KEY_INFO,
 	type AuthKeyStatus,
 	type CustomModel,
 	type CustomModelOverride,
+	type SpotifyAuthStatus,
 } from "@/src/core";
 import { SettingsGroup } from "./controls.tsx";
 import { SubscriptionConnections } from "./subscription-connections.tsx";
@@ -53,6 +56,7 @@ export interface ProviderKeyInfo {
 interface KeysResponse {
 	keys: AuthKeyStatus[];
 	providers?: ProviderKeyInfo[];
+	spotify?: SpotifyAuthStatus;
 }
 
 /** The custom endpoint's non-secret status (GET /api/custom-provider). */
@@ -101,6 +105,8 @@ export function classifyKeys(
 	/** The curated tools rows (synthesized when absent — always shown,
 	 *  they carry the docs links a first boot needs). */
 	toolRows: AuthKeyStatus[];
+	/** Spotify Client ID row (synthesized when absent). */
+	spotifyRow: AuthKeyStatus;
 	/** Unknown file vars — preserved, read-only. */
 	unknownRows: AuthKeyStatus[];
 	/** Providers without a stored key — the Add dropdown's options. */
@@ -124,7 +130,7 @@ export function classifyKeys(
 		// The custom endpoint's key has its OWN home (the Custom endpoint
 		// section), so it never shows here — not as a provider row, not as an
 		// "other stored variable".
-		if (s.id === CUSTOM_PROVIDER.envVar) continue;
+		if (s.id === CUSTOM_PROVIDER.envVar || s.id === SPOTIFY_CLIENT_ID_KEY) continue;
 		if (providerEnv.has(s.id) || (!s.info && providers === undefined)) providerRows.push(s);
 		else if (!s.info) unknownRows.push(s);
 		// (pre-interlude catalogs: a curated-but-unclassified status still
@@ -134,6 +140,14 @@ export function classifyKeys(
 	return {
 		providerRows,
 		toolRows: TOOL_IDS.map((id) => byId.get(id) ?? synth(id)),
+		spotifyRow: byId.get(SPOTIFY_CLIENT_ID_KEY) ?? {
+			id: SPOTIFY_CLIENT_ID_KEY,
+			info: SPOTIFY_KEY_INFO,
+			present: false,
+			masked: null,
+			source: "none",
+			shadowedByEnv: false,
+		},
 		unknownRows,
 		addable: (providers ?? []).filter((p) => !byId.has(p.envVar)),
 	};
@@ -387,6 +401,10 @@ export function KeysSection({
 	/** The custom endpoint's status + whether its connect editor is open. */
 	const [custom, setCustom] = useState<CustomStatus | null>(null);
 	const [addingCustom, setAddingCustom] = useState(false);
+	/** Spotify OAuth connection status (piggybacked on GET /api/keys). */
+	const [spotifyStatus, setSpotifyStatus] = useState<SpotifyAuthStatus | null>(null);
+	const [spotifyError, setSpotifyError] = useState<string | null>(null);
+	const [spotifyBusy, setSpotifyBusy] = useState(false);
 
 	// Escape folds any open editor (unfolded row or the Add-provider paste)
 	// WITHOUT closing the dialog. Claimed at document CAPTURE phase — the
@@ -414,6 +432,7 @@ export function KeysSection({
 			const body = (await fetch("/api/keys").then((r) => r.json())) as KeysResponse;
 			setStatuses(body.keys ?? []);
 			if (body.providers) setProviders(body.providers);
+			if (body.spotify) setSpotifyStatus(body.spotify);
 		} catch {
 			setStatuses([]);
 		} finally {
@@ -430,6 +449,14 @@ export function KeysSection({
 
 	useEffect(() => {
 		void reload();
+		const onMessage = (e: MessageEvent) => {
+			if (e.data && typeof e.data === "object" && (e.data as { type?: unknown }).type === "lh:spotify-connected") {
+				void reload();
+				notifySettingsSaved("keys");
+			}
+		};
+		window.addEventListener("message", onMessage);
+		return () => window.removeEventListener("message", onMessage);
 	}, []);
 
 	// The deep-link follow: a retarget while the section is open (the
@@ -478,7 +505,47 @@ export function KeysSection({
 		return <p className="px-6 py-5 text-xs text-muted-foreground/70">Loading keys…</p>;
 	}
 
-	const { providerRows, toolRows, unknownRows, addable } = classifyKeys(statuses, providers);
+	const { providerRows, toolRows, spotifyRow, unknownRows, addable } = classifyKeys(statuses, providers);
+
+	async function connectSpotifyAccount() {
+		if (spotifyBusy) return;
+		setSpotifyBusy(true);
+		setSpotifyError(null);
+		try {
+			const res = await fetch("/api/spotify/status", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ action: "login", origin: window.location.origin }),
+			});
+			const data = (await res.json().catch(() => ({}))) as { ok?: boolean; authorizeUrl?: string; error?: string };
+			if (!res.ok || !data.authorizeUrl) {
+				setSpotifyError(data.error ?? "Failed to start Spotify login.");
+			} else {
+				window.open(data.authorizeUrl, "lh-spotify-auth", "width=520,height=720");
+			}
+		} catch {
+			setSpotifyError("Failed to start Spotify login.");
+		} finally {
+			setSpotifyBusy(false);
+		}
+	}
+
+	async function disconnectSpotifyAccount() {
+		if (spotifyBusy) return;
+		setSpotifyBusy(true);
+		setSpotifyError(null);
+		try {
+			await fetch("/api/spotify/status", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ action: "disconnect" }),
+			});
+			await reload();
+			notifySettingsSaved("keys");
+		} finally {
+			setSpotifyBusy(false);
+		}
+	}
 
 	async function saveNewProvider(p: ProviderKeyInfo, value: string) {
 		const err = await saveKey(p.envVar, value);
@@ -610,6 +677,74 @@ export function KeysSection({
 					</p>
 				</>}
 			</SettingsGroup>)}
+
+			<SettingsGroup label="Music (Spotify)" testid="spotify-settings-group">
+				<KeyTableRow
+					label={spotifyRow.info?.label ?? SPOTIFY_KEY_INFO.label}
+					docsUrl={spotifyRow.info?.docsUrl ?? SPOTIFY_KEY_INFO.docsUrl}
+					status={spotifyRow}
+					expanded={openRow === spotifyRow.id}
+					onToggle={() => setOpenRow(openRow === spotifyRow.id ? null : spotifyRow.id)}
+					onSave={async (v) => {
+						const err = await saveKey(spotifyRow.id, v);
+						if (!err) setOpenRow(null);
+						return err;
+					}}
+					onCancel={() => setOpenRow(null)}
+					onDelete={() => deleteKey(spotifyRow.id)}
+					testid="key-spotify_client_id"
+				/>
+				<div data-testid="spotify-connection-row" className="flex items-center justify-between gap-3 rounded-sm px-1 py-1.5">
+					<span className="font-ui text-xs text-foreground">Spotify Account</span>
+					<span className="flex items-center gap-2.5">
+						<span data-testid="spotify-connection-status" className="font-mono text-[11px] text-muted-foreground">
+							{spotifyStatus?.connected
+								? `connected · ${spotifyStatus.displayName ?? "Spotify"}`
+								: spotifyRow.present
+									? "not connected"
+									: "client id required"}
+						</span>
+						{spotifyStatus?.connected ? (
+							<button
+								type="button"
+								onClick={() => void disconnectSpotifyAccount()}
+								disabled={spotifyBusy}
+								data-testid="spotify-disconnect-btn"
+								className="cursor-pointer text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								Disconnect
+							</button>
+						) : (
+							<button
+								type="button"
+								onClick={() => void connectSpotifyAccount()}
+								disabled={!spotifyRow.present || spotifyBusy}
+								data-testid="spotify-connect-btn"
+								className="cursor-pointer rounded-sm border border-border bg-background px-2 py-0.5 font-ui text-xs text-foreground transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								Connect Spotify
+							</button>
+						)}
+					</span>
+				</div>
+				{spotifyError && (
+					<p role="alert" data-testid="spotify-connection-error" className="px-1 text-xs text-red-500">
+						{spotifyError}
+					</p>
+				)}
+				<p data-testid="spotify-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
+					Create an app in the{" "}
+					<a
+						href="https://developer.spotify.com/dashboard"
+						target="_blank"
+						rel="noreferrer"
+						className="underline underline-offset-2 hover:text-foreground"
+					>
+						Spotify Developer Dashboard
+					</a>
+					, add Redirect URI <code className="rounded bg-accent/60 px-1 py-0.5 font-mono text-[10px]">http://127.0.0.1:3000/api/spotify/callback</code>, paste your <strong>Client ID</strong> above, then click <strong>Connect Spotify</strong>.
+				</p>
+			</SettingsGroup>
 
 		</>
 	);

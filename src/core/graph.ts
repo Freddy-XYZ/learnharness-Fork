@@ -67,6 +67,7 @@ import type {
 import { MIN_CLUSTER_SIZE } from "./clusters.ts";
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { derivePracticeStats, type PracticeSessionSlice } from "./spaced-retrieval.ts";
 import { sourceFileLabel } from "./source-label.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
@@ -588,6 +589,22 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	// one-shot pass until the first merge writes the ledger.
 	const positions = deps.graphStore.readPositions();
 
+	const practiceSessions: PracticeSessionSlice[] = [];
+	if (typeof deps.chatStore.listChats === "function") {
+		for (const summary of deps.chatStore.listChats()) {
+			if (summary.kind !== "practice") continue;
+			const record = deps.chatStore.getChat(summary.id);
+			if (record && Array.isArray(record.messages)) {
+				practiceSessions.push({
+					id: record.id,
+					updatedAt: record.updatedAt,
+					messages: record.messages,
+				});
+			}
+		}
+	}
+	const practiceStats = derivePracticeStats(graph.nodes, practiceSessions);
+
 	return {
 		nodes,
 		propositions: graph.nodes,
@@ -600,6 +617,7 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 		nodeSessions,
 		clusters,
 		...(Object.keys(positions).length > 0 ? { positions } : {}),
+		practiceStats,
 	};
 }
 
@@ -691,5 +709,4 @@ export function graphSessionPropositions(deps: GraphDeps, sessionId: string): Gr
 
 // Re-export: the contract owns the shape; legacy importers still reach it.
 export type { EmissionStats };
-
 

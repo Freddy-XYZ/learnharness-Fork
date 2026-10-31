@@ -66,8 +66,18 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import Link from "next/link";
-import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
-import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { BookOpenIcon, DumbbellIcon, FileTextIcon, ListTreeIcon, Loader2Icon, MessageSquareQuoteIcon, SearchIcon, SettingsIcon, UploadIcon, WaypointsIcon } from "lucide-react";
+import {
+	formatNodeReviewBadge,
+	incrementalLayout,
+	propositionSessionHref,
+	selectDueForReview,
+	type DueReviewSelection,
+	type GraphChain,
+	type GraphCostSummary,
+	type GraphNode,
+	type GraphSnapshot,
+} from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -133,6 +143,46 @@ export function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query
 	const q = query.trim().toLowerCase();
 	if (!q) return true;
 	return node.name.toLowerCase().includes(q) || node.statement.toLowerCase().includes(q);
+}
+
+/**
+ * Resolve a clicked canvas node (either a proposition node or a derived
+ * implication node `arg_…`) into the updated proposition selection list
+ * (including direct premise chains for that node) and a readable label for
+ * the composer prompt suggestion. Pure and exported for tests.
+ */
+export function resolveNodeActionSelection(
+	node: Pick<GraphNode, "id" | "name" | "statement">,
+	propositions: readonly Pick<GraphNode, "id" | "name" | "statement">[],
+	chains: readonly Pick<GraphChain, "id" | "premises" | "conclusion">[],
+	existingSelection?: ReadonlySet<string>,
+): {
+	propositions: { id: string; name: string; statement: string }[];
+	label: string;
+} {
+	const ids = new Set<string>(existingSelection);
+	const propById = new Map(propositions.map((p) => [p.id, p]));
+	const impChain = chains.find((c) => c.id === node.id);
+	let label = node.name;
+	if (impChain) {
+		for (const pId of impChain.premises) ids.add(pId);
+		ids.add(impChain.conclusion);
+		label = propById.get(impChain.conclusion)?.name ?? node.name;
+	} else {
+		ids.add(node.id);
+		for (const c of chains) {
+			if (c.conclusion === node.id) {
+				for (const pId of c.premises) ids.add(pId);
+			}
+		}
+	}
+	const picked: { id: string; name: string; statement: string }[] = [];
+	for (const p of propositions) {
+		if (ids.has(p.id)) {
+			picked.push({ id: p.id, name: p.name, statement: p.statement });
+		}
+	}
+	return { propositions: picked, label };
 }
 
 /** In-place sessions patch for a live rename (rename-shuffle fix,
@@ -929,6 +979,8 @@ export function GraphView({
 	practiceSelection,
 	onPracticeSelectionChange,
 	onChainSelectClose,
+	onNodeAction,
+	onDueReviewChange,
 }: {
 	/** PRACTICE SELECT (owner vision, 2026-10-04): the LIFTED, persistent
 	 *  pick set — every check/clear in the chain table (however opened)
@@ -939,6 +991,8 @@ export function GraphView({
 	practiceSelection?: ReadonlySet<string>;
 	onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
 	onChainSelectClose?: () => void;
+	onNodeAction?: (mode: "teach" | "practice" | "feynman", label: string) => void;
+	onDueReviewChange?: (selection: DueReviewSelection) => void;
 }) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1054,7 +1108,12 @@ export function GraphView({
 		fetch("/api/graph")
 			.then((res) => res.json() as Promise<GraphSnapshot>)
 			.then((data) => {
-				if (!cancelled) setSnapshot(data);
+				if (!cancelled) {
+					setSnapshot(data);
+					onDueReviewChange?.(
+						selectDueForReview(data.propositions ?? [], data.chains ?? [], data.practiceStats),
+					);
+				}
 			})
 			.catch((err) => console.error("[graph] fetch failed:", err));
 		return () => {
@@ -1620,7 +1679,21 @@ export function GraphView({
 					// over home.tsx's drag surface (2026-09-17).
 					className="lh-no-drag absolute z-10 w-80 max-w-[calc(100%-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
 				>
-					<div className="text-sm font-medium leading-snug">{selected.node.name}</div>
+					<div className="flex items-start justify-between gap-2">
+						<div className="text-sm font-medium leading-snug">{selected.node.name}</div>
+						{!selected.node.id.startsWith("arg_") && (() => {
+							const badge = formatNodeReviewBadge(snapshot?.practiceStats?.[selected.node.id]);
+							return (
+								<span
+									data-testid="node-card-review-status"
+									data-review-state={badge.state}
+									className="shrink-0 rounded-full border border-border/80 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
+								>
+									{badge.label}
+								</span>
+							);
+						})()}
+					</div>
 					<div className="mt-1 text-xs leading-relaxed text-muted-foreground">{selected.node.statement}</div>
 					{selected.sourceIds.length > 0 ? (
 						<div className="mt-3 flex flex-col gap-1">
@@ -1655,6 +1728,65 @@ export function GraphView({
 					) : (
 						<div className="mt-3 text-xs text-muted-foreground">No sessions recorded.</div>
 					)}
+					<div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3">
+						<button
+							type="button"
+							data-testid="node-card-practice"
+							onClick={() => {
+								const { propositions: picked, label } = resolveNodeActionSelection(
+									selected.node,
+									snapshot?.propositions ?? [],
+									snapshot?.chains ?? [],
+									practiceSelection,
+								);
+								onPracticeSelectionChange?.(picked);
+								onNodeAction?.("practice", label);
+								setSelected(null);
+							}}
+							className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+						>
+							<DumbbellIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+							Practice
+						</button>
+						<button
+							type="button"
+							data-testid="node-card-feynman"
+							onClick={() => {
+								const { propositions: picked, label } = resolveNodeActionSelection(
+									selected.node,
+									snapshot?.propositions ?? [],
+									snapshot?.chains ?? [],
+									practiceSelection,
+								);
+								onPracticeSelectionChange?.(picked);
+								onNodeAction?.("feynman", label);
+								setSelected(null);
+							}}
+							className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+						>
+							<MessageSquareQuoteIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+							Teach back
+						</button>
+						<button
+							type="button"
+							data-testid="node-card-teach"
+							onClick={() => {
+								const { propositions: picked, label } = resolveNodeActionSelection(
+									selected.node,
+									snapshot?.propositions ?? [],
+									snapshot?.chains ?? [],
+									practiceSelection,
+								);
+								onPracticeSelectionChange?.(picked);
+								onNodeAction?.("teach", label);
+								setSelected(null);
+							}}
+							className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+						>
+							<BookOpenIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+							Go deeper
+						</button>
+					</div>
 				</div>
 			)}
 			{/* The chain table overlay (chains-overlay plan, 2026-09-29):

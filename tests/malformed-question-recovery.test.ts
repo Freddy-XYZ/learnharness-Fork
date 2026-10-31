@@ -99,9 +99,10 @@ test("actual compatible adapter EOF → loop → settlement retains failure but 
 	assert.equal(pendingQuestionOf(messages), null);
 });
 
-for (const tool of ["quiz", "probe", "ask_user_question", "explain", "recall"]) {
+for (const tool of ["quiz", "probe", "ask_user_question", "explain", "recall", "pronounce"]) {
 	test(`${tool}: accepted boundary normalization remains displayable without changing the record`, async () => {
-		const raw = tool === "ask_user_question" ? { question: "Goal?", options: JSON.stringify(valid.options) }
+		const raw = tool === "pronounce" ? { type: "check", question: "Speak this phrase", phrase: "Buenos días", language: "es" }
+			: tool === "ask_user_question" ? { question: "Goal?", options: JSON.stringify(valid.options) }
 			: tool === "explain" || tool === "recall" ? { type: '\"check\"', nodeId: "fixture", question: "Explain parity", correctAnswer: "Even numbers are divisible by two." }
 			: { ...valid, options: JSON.stringify(valid.options) };
 		assert.ok(parseQuestionInput(tool, raw));

@@ -29,7 +29,7 @@
 
 import { Value } from "typebox/value";
 import type { TSchema } from "typebox";
-import { quizDisplayInputSchema, askInputSchema, askOptionProblems, quizInputProblems, explainInputProblems, explainDisplayInputSchema, type AskToolInput, type QuizToolInput, type ExplainToolInput } from "./question-core.ts";
+import { quizDisplayInputSchema, askInputSchema, askOptionProblems, quizInputProblems, explainInputProblems, explainDisplayInputSchema, pronounceDisplayInputSchema, pronounceInputProblems, type AskToolInput, type QuizToolInput, type ExplainToolInput, type PronounceToolInput } from "./question-core.ts";
 import { healEncodedArguments } from "./argument-heal.ts";
 import { probeDoneInputSchema, type ProbeDoneInput } from "./contracts/probe.ts";
 
@@ -113,13 +113,23 @@ export function parseExplainInput(input: unknown): ExplainToolInput | undefined 
 	return cleaned;
 }
 
+/** Pronounce parse for DISPLAY: the display schema (base + OPTIONAL lenient `type`). */
+export function parsePronounceInput(input: unknown): PronounceToolInput | undefined {
+	const healedInput = healEncodedArguments(input, pronounceDisplayInputSchema);
+	const cleaned = boundaryParse<PronounceToolInput>(pronounceDisplayInputSchema, healedInput);
+	if (!cleaned) return undefined;
+	if (pronounceInputProblems(cleaned).length > 0) return undefined;
+	return cleaned;
+}
+
 /** One display-validity decision for dock authority and recovery. Does not
  * mutate the recorded input or invent missing authoring fields. */
-export function parseQuestionInput(tool: string, input: unknown): QuizToolInput | AskToolInput | ExplainToolInput | undefined {
+export function parseQuestionInput(tool: string, input: unknown): QuizToolInput | AskToolInput | ExplainToolInput | PronounceToolInput | undefined {
 	switch (tool) {
 		case "quiz": case "probe": return parseQuizInput(input);
 		case "explain": case "recall": return parseExplainInput(input);
 		case "ask_user_question": return parseAskInput(input);
+		case "pronounce": return parsePronounceInput(input);
 		default: return undefined;
 	}
 }

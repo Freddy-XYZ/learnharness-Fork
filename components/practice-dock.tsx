@@ -8,6 +8,7 @@ import { joinDictation, useDictationTarget } from "@/components/dictation";
 import { useEnterSubmits } from "@/components/enter-submits";
 import { PathInput } from "@/components/path-input";
 import { cn } from "@/lib/utils";
+import { isFeynmanMode } from "@/src/core";
 
 /**
  * The practice dock (practice sessions, owner design 2026-10-04): an
@@ -33,8 +34,9 @@ export interface PracticeDockProps {
 	/** The active problem's tool-call id (submissions target it). */
 	problemCallId: string;
 	/** The pose's arguments — only the statement is the learner's (the
-	 *  mode badge would edge toward announcing the target; dropped). */
-	input: { statement: string };
+	 *  mode badge would edge toward announcing the target; dropped, except
+	 *  when the learner is in Feynman Teach-Back mode). */
+	input: { statement: string; mode?: string };
 	/** Collapse state, owned by the DockOverlay. */
 	expanded: boolean;
 	onExpand: () => void;
@@ -51,6 +53,7 @@ export interface PracticeDockProps {
 
 export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmit, onEscape, compactionRunning = false }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
+	const feynman = isFeynmanMode(input.mode);
 	// Ref MIRRORS the field ("nothing gets lost", the question-dock
 	// discipline): a submit resuming after `await finishDictation()` reads
 	// the tail, never a stale closure.
@@ -94,6 +97,11 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			>
 				<ChevronRightIcon className="size-4 shrink-0 rotate-90" />
 				<span className="font-medium">Problem</span>
+				{feynman && (
+					<span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+						Teach back · Feynman
+					</span>
+				)}
 				<span className="min-w-0 flex-1 truncate">{input.statement}</span>
 			</button>
 		);
@@ -107,7 +115,17 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 			    markdown + LaTeX rendered, capped by the measured column
 			    (--dock-max-h; the old fixed 40vh cut long problems short). */}
 			<div data-dock-scroll-area="" className="max-h-[var(--dock-max-h,40vh)] overflow-y-auto px-4 pt-3 pb-2">
-				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
+				<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<span>Problem</span>
+					{feynman && (
+						<span
+							data-testid="practice-feynman-badge"
+							className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary"
+						>
+							Teach back · Feynman
+						</span>
+					)}
+				</div>
 				<div className="lh-prose text-[15px]">
 					<ToolContentResponse>{input.statement}</ToolContentResponse>
 				</div>
@@ -120,7 +138,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 				className="m-1.5 rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50"
 			>
 				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-					YOUR THINKING
+					{feynman ? "YOUR THINKING · EXPLAIN LIKE I'M 12" : "YOUR THINKING"}
 				</div>
 				<PathInput
 					value={thinking}
@@ -144,7 +162,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 							submit();
 						}
 					}}
-					placeholder="Work here, think out loud."
+					placeholder={feynman ? "Explain it in plain words, without jargon." : "Work here, think out loud."}
 					className={cn(
 						"field-sizing-content lh-input max-h-64 min-h-16 w-full resize-none bg-transparent px-2.5 pb-2 outline-none placeholder:text-muted-foreground",
 					)}
@@ -164,7 +182,7 @@ export function PracticeDock({ problemCallId, input, expanded, onExpand, onSubmi
 						onClick={() => submit()}
 						className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium"
 					>
-						Submit thinking
+						{feynman ? "Submit explanation" : "Submit thinking"}
 					</Button>
 				</div>
 			</div>

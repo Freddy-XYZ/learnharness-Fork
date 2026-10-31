@@ -177,6 +177,9 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
+		case "SPOTIFY_CLIENT_ID":
+			// Spotify Client IDs are 32-char hex strings; ≥16 chars with no whitespace.
+			return nonEmpty(16);
 		default:
 			return { ok: false, error: `unknown key "${id}" (supported: ${[...AUTH_KEY_IDS].join(", ")})` };
 	}

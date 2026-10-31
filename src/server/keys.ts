@@ -52,6 +52,7 @@ import {
 	maskKey,
 	validateKeyShape,
 } from "../core/auth-keys.ts";
+import { SPOTIFY_CLIENT_ID_KEY, SPOTIFY_KEY_INFO } from "../core/spotify.ts";
 import { authStore } from "../store/auth.ts";
 import { isSubscriptionProvider, subscriptionConnected } from "../agent/subscription-connections.ts";
 import { customProviderAvailable, installCustomProviderSource } from "./custom-provider.ts";
@@ -66,7 +67,11 @@ import { authEnvRecord as boot } from "../core/auth-env.ts";
 /** Ordinary writable key names. Custom auth writes must use the atomic
  * endpoint-binding seam, never the generic single-key API. */
 export function isWritableAuthKey(id: string): boolean {
-	return id !== CUSTOM_AUTH_BINDING && id !== CUSTOM_PROVIDER.envVar && (isKnownAuthKey(id) || isProviderEnvVar(id));
+	return (
+		id !== CUSTOM_AUTH_BINDING &&
+		id !== CUSTOM_PROVIDER.envVar &&
+		(isKnownAuthKey(id) || isProviderEnvVar(id) || id === SPOTIFY_CLIENT_ID_KEY)
+	);
 }
 
 /** The settings page's provider dropdown: every pi-ai provider that takes
@@ -101,6 +106,7 @@ export function initAuthEnv(): void {
 		// semantics, exactly like the curated vars.
 		...AUTH_PROVIDER_KEYS.map((p) => p.envVar),
 		CUSTOM_PROVIDER.envVar,
+		SPOTIFY_CLIENT_ID_KEY,
 	]);
 	if (envKeysIgnored()) {
 		// THE FRESH-USER SWITCH: delete every managed env var (re-run on
@@ -160,7 +166,7 @@ export function resolveKeyStatuses(
 		const live = envValue !== undefined ? envValue : fileValue;
 		rows.push({
 			id,
-			info: AUTH_KEYS.find((k) => k.id === id) ?? null,
+			info: id === SPOTIFY_CLIENT_ID_KEY ? SPOTIFY_KEY_INFO : (AUTH_KEYS.find((k) => k.id === id) ?? null),
 			present: live !== undefined,
 			// Custom keys may be one character: even a masked suffix can expose
 			// the entire credential. Preserve inventory, return no key characters.
@@ -174,7 +180,12 @@ export function resolveKeyStatuses(
 
 /** The GET view: every curated key (present or not) + unknown file vars. */
 export function keyStatuses(): AuthKeyStatus[] {
-	return resolveKeyStatuses(authStore.authVars(), process.env, boot().realEnv, new Set([...AUTH_PROVIDER_ENV_VARS, CUSTOM_PROVIDER.envVar]));
+	return resolveKeyStatuses(
+		authStore.authVars(),
+		process.env,
+		boot().realEnv,
+		new Set([...AUTH_PROVIDER_ENV_VARS, CUSTOM_PROVIDER.envVar, SPOTIFY_CLIENT_ID_KEY]),
+	);
 }
 
 /** The live value for one var, env-first (the env-wins rule) — the canonical
@@ -240,7 +251,16 @@ export function deleteKey(id: string): AuthKeyStatus {
 		delete process.env[id];
 		record.fillGap.delete(id);
 	}
-	return keyStatuses().find((s) => s.id === id)!;
+	return (
+		keyStatuses().find((s) => s.id === id) ?? {
+			id,
+			info: id === SPOTIFY_CLIENT_ID_KEY ? SPOTIFY_KEY_INFO : (AUTH_KEYS.find((k) => k.id === id) ?? null),
+			present: false,
+			masked: null,
+			source: "none",
+			shadowedByEnv: false,
+		}
+	);
 }
 
 // Reflect the file into the env at first import (idempotent; the module is

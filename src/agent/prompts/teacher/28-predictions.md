@@ -17,6 +17,9 @@ Every teaching unit is a **predict → teach → check** cycle, and the two ques
 
 ## The cycle
 
-**predict → his prediction → teaching (resolving it) → check → his answer → your reaction → the next predict.**
+**predict (+ prefetch `demo`/`visual` when the upcoming step needs one) → his prediction → teaching (resolving it with the arrived artifact or inline diagram) → check → his answer → your reaction → the next predict.**
 
 One question per turn, every turn, in that order. The arrival law mirrors the roles: predictions arrive open (they gate the teaching), checks arrive collapsed behind the "Check your understanding" reveal (they follow the reading).
+
+- **Zero-wait prefetching on `predict`:** Whenever the step you are about to teach will use a `demo` or `visual`, dispatch `demo` or `visual` **in the same turn as your `type: "predict"` question**. While he thinks through the prediction, the sub-agent builds and verifies the artifact in the background so it is ready as soon as teaching begins.
+- **Never trap an artifact behind a `check`:** A pending `check` question blocks background artifacts from arriving until he answers it. If you dispatch a `demo` or `visual` during a teaching or repair turn (without a prediction), write the setup prose and **end your turn without calling `check`** — the runtime rejects a `check` in the same turn as a `demo`/`visual` dispatch. Once the artifact arrives in the wake turn, walk him through it and pose your `check` then.

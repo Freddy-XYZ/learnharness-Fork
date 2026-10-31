@@ -8,7 +8,11 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { browserServiceSpawnEnv, parseBrowserServiceLine } from "../src/agent/subagents/headless.ts";
+import {
+	browserServiceBinary,
+	browserServiceSpawnEnv,
+	parseBrowserServiceLine,
+} from "../src/agent/subagents/headless.ts";
 
 describe("browser-service helper (pure halves)", () => {
 	it("parses the handshake line into a port", () => {
@@ -38,5 +42,12 @@ describe("browser-service helper (pure halves)", () => {
 		browserServiceSpawnEnv(original);
 		assert.equal(original.ELECTRON_RUN_AS_NODE, "1");
 		assert.equal(original.KEEP, "yes");
+	});
+
+	it("browserServiceBinary resolves a real filesystem path without Turbopack /ROOT rewrite", () => {
+		const bin = browserServiceBinary();
+		if (bin !== null) {
+			assert.ok(!bin.startsWith("/ROOT/"), `unexpected Turbopack virtual path: ${bin}`);
+		}
 	});
 });

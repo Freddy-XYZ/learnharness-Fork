@@ -60,6 +60,8 @@ import { SessionMessageNavigation } from "@/components/session-navigation";
 import { PracticeDock } from "@/components/practice-dock";
 import { ThinkingCard, type PracticeThinkingData } from "@/components/practice-cards";
 import { GraphContextCard, type GraphContextData } from "@/components/graph-context-card";
+import { CalibrationChip } from "@/components/calibration-chip";
+import { isLessonPlanComplete, SessionWrapUpCard } from "@/components/session-wrap-up";
 import { TopBar } from "@/components/top-bar";
 import type { ArtifactPartProps, JobRecord, Phase3, QuestionAnswerData, QuestionFormDraft, TurnUsage, SessionPricing } from "@/src/core";
 import type { LhViewMessage } from "@/src/core";
@@ -73,6 +75,7 @@ import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
 	activeProblemOf,
+	deriveSessionCalibration,
 	pendingQuestionOf,
 	malformedQuestionsOf,
 	dismissedAnswer,
@@ -916,6 +919,10 @@ export function Chat({
 	// The session's live plan (drives the top-bar chip; the marginalia
 	// derives its own from the same transcript).
 	const planTree = useMemo(() => latestTree(messages), [messages]);
+	const sessionCalibration = useMemo(
+		() => deriveSessionCalibration(messages, planTree),
+		[messages, planTree],
+	);
 
 	// ── Session usage (wave-4 stats bar) ──
 	// The money channel: the record's turns log and read-time server Pi
@@ -1379,6 +1386,13 @@ export function Chat({
 					{/* Practice (owner, 2026-10-04): the coverage ring hides —
 				    practice never extracts, so an ever-filling ring with no
 				    run behind it would lie. */}
+					{kind !== "practice" && (
+						<CalibrationChip
+							chatId={chatId}
+							title={titleText}
+							calibration={sessionCalibration}
+						/>
+					)}
 					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
 					{/* Practice sessions: no phase arc — a quiet Practice tag
 					    instead of the phase chip. */}
@@ -1588,7 +1602,8 @@ export function Chat({
 													case "tool-probe":
 													case "tool-ask_user_question":
 													case "tool-explain":
-													case "tool-recall": {
+													case "tool-recall":
+													case "tool-pronounce": {
 														const malformed = !busy && malformedQuestions.find(call => call.messageId === part.sourceMessageId && call.contentIndex === part.sourceContentIndex && call.toolCallId === part.toolCallId);
 														if (malformed) return <MalformedQuestion key={pi} disabled={!!pending || compacting}
 															reason={pending ? "Answer or discard the remaining question first." : undefined}
@@ -1676,6 +1691,17 @@ export function Chat({
 									)}
 								</div>
 							)}
+							{kind !== "practice" &&
+								planTree &&
+								isLessonPlanComplete(planTree, messages, busy || compacting, Boolean(pending)) && (
+									<SessionWrapUpCard
+										chatId={chatId}
+										title={titleText}
+										tree={planTree}
+										calibration={sessionCalibration}
+										refreshKey={coverageTick}
+									/>
+								)}
 						</div>
 
 						{/* The dock's reserved tail (DockOverlay reports its height):
@@ -2394,7 +2420,7 @@ function DockOverlay({
 						>
 							{pending ? (
 								<QuestionDock
-									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall"}
+									toolName={pending.tool as "quiz" | "probe" | "ask_user_question" | "explain" | "recall" | "pronounce"}
 									toolCallId={pending.toolCallId}
 									input={pending.input as never}
 									expanded={expanded}
@@ -2411,7 +2437,7 @@ function DockOverlay({
 							) : practice ? (
 								<PracticeDock
 									problemCallId={practice.toolCallId}
-									input={practice.input as { statement: string }}
+									input={practice.input as { statement: string; mode?: string }}
 									expanded={expanded}
 									onExpand={() => {
 										setExpanded(true);

@@ -27,6 +27,9 @@ export interface JobToolContext {
 	 *  Research dispatch does not depend on it: web_fetch is keyless and
 	 *  web_search reports a missing provider as a recoverable tool result. */
 	searchAvailable?: () => boolean;
+	/** Turn-scoped hook notified when a visual or demo artifact is dispatched,
+	 *  so the teacher's check gate knows an artifact is in flight this turn. */
+	onArtifactDispatch?: (kind: "demo" | "visual") => void;
 }
 
 export const researchInputSchema = Type.Object({
@@ -80,6 +83,7 @@ function dispatch(
 	const existing = ctx.jobStore.findJobByToolCallId(ctx.chatId, toolCallId);
 	const job = existing ?? ctx.jobStore.createJob({ kind, chatId: ctx.chatId, toolCallId, input });
 	if (!existing) ctx.spawn(job, input);
+	if (kind === "demo" || kind === "visual") ctx.onArtifactDispatch?.(kind);
 	return `Dispatched (job ${job.id}). ${ack}`;
 }
 
@@ -88,10 +92,10 @@ const RESEARCH_ACK =
 	"The researched brief arrives as a new message when ready and the lesson resumes from it; cite its sources when you use them.";
 const DEMO_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The tested demo arrives as a new message when ready and is rendered in the lesson; teach with it then.";
+	"If you are prefetching for the upcoming step, pose your `predict` question now; if you are teaching the current step, finish your setup prose and end your turn WITHOUT a `check` question so the tested demo can arrive and render before you pose the check.";
 const VISUAL_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
-	"The verified figure arrives as a new message when ready and is rendered in the lesson; reference it then.";
+	"If you are prefetching for the upcoming step, pose your `predict` question now; if you are teaching the current step, finish your setup prose and end your turn WITHOUT a `check` question so the verified figure can arrive and render before you pose the check.";
 const PDF_ACK =
 	"This call is fire-and-forget: continue your turn and keep teaching — do not wait, poll, or mention waiting. " +
 	"The document brief arrives as a new message when ready; weave it into the lesson and cite its pages.";

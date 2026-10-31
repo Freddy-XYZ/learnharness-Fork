@@ -202,3 +202,11 @@ export function sessionCoverage(chatId: string): SessionCoverage | null {
 		lastFoldedAt,
 	};
 }
+
+/** Propositions in the knowledge graph whose provenance includes this session. */
+export function sessionPropositions(chatId: string): { id: string; name: string; statement: string }[] {
+	return stores.graphStore
+		.readNodes()
+		.filter((n) => n.provenance.some((p) => p.chatId === chatId))
+		.map((n) => ({ id: n.id, name: n.name, statement: n.statement }));
+}
