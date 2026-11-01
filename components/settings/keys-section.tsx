@@ -96,14 +96,15 @@ export const CUSTOM_PROVIDER_INFO: ProviderKeyInfo = {
 /** Starts the Spotify OAuth popup; resolves to an error message or null.
  *  Browser: opens a blank popup synchronously (before the first await, so
  *  Safari still counts the click) and points it at Spotify once the server
- *  returns the authorize URL. Desktop: Electron routes window.open to the
- *  system browser and always returns null, so it opens the real URL once. */
-export async function openSpotifyLogin({ isDesktop, open, start }: {
-	isDesktop: boolean;
+ *  returns the authorize URL. Desktop: `desktopLogin` (window.lh.spotify)
+ *  hands the URL to Electron main, which opens the system browser and
+ *  resolves once the callback has been received. */
+export async function openSpotifyLogin({ desktopLogin, open, start }: {
+	desktopLogin?: (authorizeUrl: string) => Promise<{ ok: boolean; error?: string }>;
 	open: (url: string) => Window | null;
 	start: () => Promise<{ authorizeUrl?: string; error?: string }>;
 }): Promise<string | null> {
-	const popup = isDesktop ? null : open("");
+	const popup = desktopLogin ? null : open("");
 	let result: { authorizeUrl?: string; error?: string };
 	try {
 		result = await start();
@@ -114,11 +115,15 @@ export async function openSpotifyLogin({ isDesktop, open, start }: {
 		popup?.close();
 		return result.error ?? "Failed to start Spotify login.";
 	}
+	if (desktopLogin) {
+		const login = await desktopLogin(result.authorizeUrl).catch(() => ({ ok: false, error: undefined }));
+		return login.ok ? null : (login.error ?? "Spotify login failed.");
+	}
 	if (popup) {
 		popup.location.href = result.authorizeUrl;
 		return null;
 	}
-	return (open(result.authorizeUrl) || isDesktop) ? null : "Popup blocked — allow popups for this site and try again.";
+	return open(result.authorizeUrl) ? null : "Popup blocked — allow popups for this site and try again.";
 }
 
 /** The classification driving the table groups. Pure — exported for
@@ -539,8 +544,9 @@ export function KeysSection({
 		if (spotifyBusy) return;
 		setSpotifyBusy(true);
 		setSpotifyError(null);
+		const desktopLogin = window.lh?.spotify?.login;
 		const error = await openSpotifyLogin({
-			isDesktop: Boolean(window.lh),
+			desktopLogin,
 			open: (url) => window.open(url, "lh-spotify-auth", "width=520,height=720"),
 			start: async () => {
 				const res = await fetch("/api/spotify/status", {
@@ -552,6 +558,10 @@ export function KeysSection({
 				return res.ok ? data : { error: data.error };
 			},
 		});
+		if (!error && desktopLogin) {
+			await reload();
+			notifySettingsSaved("keys");
+		}
 		setSpotifyError(error);
 		setSpotifyBusy(false);
 	}
