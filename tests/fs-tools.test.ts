@@ -310,3 +310,47 @@ describe("abort plumbing (the 2026-09-19 cascade fix)", () => {
 		assert.ok(Date.now() - started < 5_000, "returned promptly");
 	});
 });
+
+describe("credential denylist (read/ls/find/grep)", () => {
+	it("never reads keys or LearnHarness secrets, even through a symlink, while normal files stay readable", async () => {
+		const home = await setup();
+		const originalHome = process.env.HOME;
+		const originalUserProfile = process.env.USERPROFILE;
+		try {
+			process.env.HOME = home;
+			process.env.USERPROFILE = home;
+			const SECRET = "SECRET-KEY-MATERIAL";
+			await fs.mkdir(path.join(home, ".ssh"), { recursive: true });
+			await fs.mkdir(path.join(home, ".config", "gh"), { recursive: true });
+			await fs.writeFile(path.join(home, ".ssh", "id_ed25519"), `${SECRET}\n`);
+			await fs.writeFile(path.join(home, ".ssh", "config"), `Host x # ${SECRET}\n`);
+			await fs.writeFile(path.join(home, ".config", "gh", "hosts.yml"), `token: ${SECRET}\n`);
+			await fs.writeFile(path.join(home, "notes", "auth.json"), `{"KEY":"${SECRET}"}\n`);
+			await fs.writeFile(path.join(home, "notes", "server.pem"), `${SECRET}\n`);
+			await fs.writeFile(path.join(home, "notes", "id_ed25519.pub"), "ssh-ed25519 public\n");
+			await fs.symlink(path.join(home, ".ssh", "id_ed25519"), path.join(home, "notes", "innocent.txt"));
+
+			for (const p of ["~/.ssh/id_ed25519", "~/.SSH/config", "~/.config/gh/hosts.yml", "~/notes/auth.json", "~/notes/server.pem", "~/notes/innocent.txt"]) {
+				await assert.rejects(runText(readTool, { path: p }), /Access denied/, p);
+			}
+			await assert.rejects(runText(lsTool, { path: "~/.ssh" }), /Access denied/);
+			await assert.rejects(runText(grepTool, { path: "~/notes/innocent.txt", pattern: "SECRET" }), /Access denied/);
+			await assert.rejects(runText(findTool, { path: "~/.config/gh", pattern: "*" }), /Access denied/);
+
+			const walkedGrep = await runText(grepTool, { path: "~", pattern: SECRET });
+			assert.doesNotMatch(walkedGrep, /SECRET-KEY-MATERIAL/, "home-wide grep never surfaces key material");
+			const walkedFind = await runText(findTool, { path: "~", pattern: "*" });
+			assert.doesNotMatch(walkedFind, /\.ssh|hosts\.yml|auth\.json|server\.pem/);
+			assert.match(walkedFind, /notes\/calculus\.md/);
+
+			assert.match(await runText(readTool, { path: "~/notes/calculus.md" }), /The derivative measures force/);
+			assert.match(await runText(readTool, { path: "~/notes/id_ed25519.pub" }), /ssh-ed25519 public/, "public keys are not secrets");
+		} finally {
+			if (originalHome === undefined) delete process.env.HOME;
+			else process.env.HOME = originalHome;
+			if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+			else process.env.USERPROFILE = originalUserProfile;
+			await fs.rm(home, { recursive: true, force: true });
+		}
+	});
+});

@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute, type ImageFileResult } from "../tool-execute.ts";
-import { resolveSourcePath } from "./fs-shared.ts";
+import { assertReadablePath, resolveSourcePath } from "./fs-shared.ts";
 import { detectSupportedImageMimeTypeFromFile, processImage } from "../image-processing/index.ts";
 
 /**
@@ -99,6 +99,7 @@ export function createReadTool(model?: ReadModel): AgentTool<typeof readInput> {
 		parameters: readInput,
 		execute: serverExecute("read", readInput, async ({ path: rawPath, offset, limit }, { signal }): Promise<string | ImageFileResult> => {
 			const absolute = resolveSourcePath(rawPath);
+			await assertReadablePath(absolute);
 			const mime = await detectSupportedImageMimeTypeFromFile(absolute);
 			const buffer = await fs.readFile(absolute, { signal });
 			if (mime) {

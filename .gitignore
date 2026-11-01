@@ -13,6 +13,8 @@ dist/
 
 # dev auth/keys store (auth-keys wave): repo-root auth.json — secrets never committed
 auth.json
+# its atomic-write temp file (src/store/auth.ts) survives a crash mid-write
+.auth.json.tmp-*
 chatgpt-credentials.json*
 github-copilot-credentials.json*
 xai-credentials.json*

@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
-import { capOutput, formatSize, MAX_OUTPUT_BYTES, resolveSourcePath } from "./fs-shared.ts";
+import { assertReadablePath, capOutput, formatSize, MAX_OUTPUT_BYTES, resolveSourcePath } from "./fs-shared.ts";
 
 /**
  * The ls tool — sources v1 (2026-09-19): a Node port of pi's
@@ -31,6 +31,7 @@ export const lsTool: AgentTool<typeof lsInput> = {
 	parameters: lsInput,
 	execute: serverExecute("ls", lsInput, async (input) => {
 		const dirPath = resolveSourcePath(input.path);
+		await assertReadablePath(dirPath);
 
 		let stat;
 		try {

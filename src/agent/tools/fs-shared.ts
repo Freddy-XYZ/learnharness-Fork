@@ -1,3 +1,4 @@
+import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -44,6 +45,52 @@ export function resolveSourcePath(p?: string): string {
 	if (!p) return os.homedir();
 	if (p === "~" || p.startsWith("~/") || p.startsWith(`~${path.sep}`)) return path.join(os.homedir(), p.slice(1));
 	return path.isAbsolute(p) ? p : path.join(os.homedir(), p);
+}
+
+/**
+ * Credentials and keys the learner-file tools never read (prompt injection
+ * in an imported note, PDF or web page must not be able to pull them into
+ * a model context). Home-relative locations, plus file names wherever they
+ * sit: LearnHarness's own key stores (repo root in dev, userData packaged)
+ * and private-key files. Deliberately a short list of the high-value cases,
+ * not a complete one.
+ */
+const SENSITIVE_HOME_PATHS = [".ssh", ".gnupg", ".aws", ".config/gh", ".netrc", ".docker/config.json", ".kube"];
+const SENSITIVE_FILE_NAME =
+	/^(?:auth\.json|\.auth\.json\.tmp-.*|.*-credentials\.json.*|\.?spotify-auth\.json.*|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|.*\.pem|.*\.key)$/i;
+
+/** Lexical denylist check, case-insensitive (macOS/Windows file systems
+ *  are). Walks use it as-is: they never follow symlinks. */
+export function isSensitivePath(absolute: string): boolean {
+	const target = path.resolve(absolute).toLowerCase();
+	const home = os.homedir();
+	const homes = new Set([home]);
+	try {
+		homes.add(fsSync.realpathSync(home));
+	} catch {
+		/* home missing: the plain path still applies */
+	}
+	for (const root of homes) {
+		for (const rel of SENSITIVE_HOME_PATHS) {
+			const blocked = path.join(root, rel).toLowerCase();
+			if (target === blocked || target.startsWith(blocked + path.sep)) return true;
+		}
+	}
+	return SENSITIVE_FILE_NAME.test(path.basename(target));
+}
+
+/** Throws for a denylisted path, checked both as given and after following
+ *  symlinks (a link in ~/notes to ~/.ssh/id_ed25519 is still the key). */
+export async function assertReadablePath(absolute: string): Promise<void> {
+	let real = absolute;
+	try {
+		real = await fs.realpath(absolute);
+	} catch {
+		/* missing: the caller reports not-found */
+	}
+	if (isSensitivePath(absolute) || isSensitivePath(real)) {
+		throw new Error(`Access denied: ${absolute} holds credentials or keys, which LearnHarness's file tools never read.`);
+	}
 }
 
 /** pi's formatSize idiom (50KB prints as "50.0KB"). */
@@ -130,7 +177,8 @@ export function matchGlob(relativePath: string, pattern: string): boolean {
 }
 
 /**
- * Depth-first walk under `root`, never entering EXCLUDED_DIR_NAMES.
+ * Depth-first walk under `root`, never entering EXCLUDED_DIR_NAMES or
+ * denylisted credential paths (isSensitivePath).
  * `visit` receives absolute file paths; returning true STOPS the walk
  * (find's result limit). The deadline bounds a home-dir walk to
  * WALK_TIMEOUT_MS — partial results are the graceful degradation.
@@ -170,6 +218,7 @@ export async function walkFiles(
 				return true;
 			}
 			const full = path.join(dir, entry.name);
+			if (isSensitivePath(full)) continue; // never listed, never read
 			if (entry.isDirectory()) {
 				if (EXCLUDED_DIR_NAMES.has(entry.name)) continue;
 				if (await walkDir(full)) return true;

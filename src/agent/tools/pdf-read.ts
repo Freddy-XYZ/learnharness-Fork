@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
 import { pdfExtract, pdfInfo, pdfProbe, pdfSearch } from "../subagents/pdf-ops.ts";
+import { nonPublicReason, publicFetch } from "./public-fetch.ts";
 
 /**
  * PDF reading tools for the RESEARCHER sub-agent (owner design B,
@@ -111,7 +112,8 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 					return `web_fetch_pdf failed: invalid URL "${url}"`;
 				}
 				try {
-					const resp = await fetch(url, {
+					// Public addresses only (SSRF): the model picks the URL.
+					const resp = await publicFetch(url, {
 						headers: {
 							"User-Agent": USER_AGENT,
 							Accept: "application/pdf,application/octet-stream,*/*",
@@ -147,7 +149,7 @@ export function createPdfReadTools(dir: string): Record<string, AgentTool<any>> 
 					};
 					return summary;
 				} catch (err) {
-					return `web_fetch_pdf failed for ${url}: ${err instanceof Error ? err.message : String(err)}`;
+					return `web_fetch_pdf failed for ${url}: ${nonPublicReason(err) ?? (err instanceof Error ? err.message : String(err))}`;
 				}
 			}),
 		},

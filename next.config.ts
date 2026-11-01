@@ -118,6 +118,7 @@ const nextConfig: NextConfig = {
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@silvia-odwyer/photon-node", // CJS loads its adjacent WASM from disk
 		"@resvg/resvg-js", // native binding — same
+		"undici", // public-fetch's connect-time SSRF guard; keep Node's resolution
 	],
 };
 

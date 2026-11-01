@@ -10,6 +10,7 @@ import {
 	isBinaryFile,
 	matchGlob,
 	MAX_OUTPUT_BYTES,
+	assertReadablePath,
 	resolveSourcePath,
 	truncateGrepLine,
 	walkFiles,
@@ -54,6 +55,7 @@ export const grepTool: AgentTool<typeof grepInput> = {
 	execute: serverExecute("grep", grepInput, async (input, ctx) => {
 		if (ctx?.signal?.aborted) return "Operation aborted";
 		const searchPath = resolveSourcePath(input.path);
+		await assertReadablePath(searchPath);
 
 		let stat;
 		try {
