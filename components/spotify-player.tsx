@@ -602,6 +602,12 @@ export function SpotifyFloatingPlayer() {
 
 		void refreshPlayback();
 
+		// Desktop: stock Electron has no Widevine CDM, so the SDK can never
+		// play there. Loading it would only run Spotify's CDN script with this
+		// window's privileges (desktop API secret, window.lh bridge). Playback
+		// goes through Spotify Connect devices or the macOS app instead.
+		if (window.lh) return;
+
 		const initPlayer = () => {
 			if (!window.Spotify || sdkPlayerRef.current) return;
 			const player = new window.Spotify.Player({

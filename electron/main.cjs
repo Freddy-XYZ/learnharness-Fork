@@ -351,10 +351,11 @@ function createWindow(url) {
 	// loopback-origin only — Electron's default is auto-approve-everything,
 	// and we do not ship that.
 	// "local-fonts": the appearance section's reading-font picker (2026-09-26).
-	const allowedPermissions = new Set(["media", "mediaKeySystem", "clipboard-sanitized-write", "local-fonts"]);
+	// No "mediaKeySystem": stock Electron ships no Widevine CDM, so the
+	// Spotify Web Playback SDK cannot play here and is not loaded on desktop.
+	const allowedPermissions = new Set(["media", "clipboard-sanitized-write", "local-fonts"]);
 	const fromOwnOrigin = (origin, permission) =>
-		((origin === allowedOrigin() || (origin === "https://sdk.scdn.co" && permission === "mediaKeySystem")) &&
-			allowedPermissions.has(permission));
+		origin === allowedOrigin() && allowedPermissions.has(permission);
 	session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
 		const requestOrigin = details.requestingUrl ? new URL(details.requestingUrl).origin : null;
 		callback(fromOwnOrigin(requestOrigin, permission));
