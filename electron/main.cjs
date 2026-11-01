@@ -29,8 +29,9 @@ const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
-const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { desktopAPIHeaders, HEADER: DESKTOP_API_HEADER } = require("./desktop-api.cjs");
 const { externalURLAllowed } = require("./external-url.cjs");
+const { spotifyLoginTarget, runSpotifyLogin } = require("./spotify-login.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -739,6 +740,26 @@ async function main() {
 	// window grows right. No-op when already wide.
 	// The renderer's first paint can race did-finish-load — it asks for
 	// the current factor itself (mirrors "lh:zoom" pushes).
+	// Spotify OAuth (electron/spotify-login.cjs). Desktop dev: the `next dev`
+	// server on :3000 IS the redirect target and needs no secret, so only the
+	// browser opens; packaged: main receives the callback and forwards it.
+	ipcMain.handle("lh:spotify:login", async (event, authorizeUrl) => {
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		if (typeof authorizeUrl !== "string" || !spotifyLoginTarget(authorizeUrl)) return { ok: false, error: "Invalid Spotify login URL." };
+		if (devUrl) {
+			await shell.openExternal(authorizeUrl);
+			return { ok: true };
+		}
+		return runSpotifyLogin({
+			authorizeUrl,
+			openExternal: (target) => shell.openExternal(target),
+			forward: (search) => fetch(new URL(`/api/spotify/callback${search}`, url), {
+				headers: { [DESKTOP_API_HEADER]: desktopAPISecret },
+				redirect: "error",
+				signal: AbortSignal.timeout(30000),
+			}),
+		});
+	});
 	ipcMain.handle("lh:zoom:get", (event) => BrowserWindow.fromWebContents(event.sender)?.webContents.getZoomFactor() ?? 1);
 	ipcMain.on("lh:expand-window", (event) => {
 		const win = BrowserWindow.fromWebContents(event.sender);

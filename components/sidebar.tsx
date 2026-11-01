@@ -70,6 +70,8 @@ declare global {
 			openSubscriptionBrowser?: (action: string) => Promise<void>;
 			chatgpt?: ChatGPTControlBridge;
 			subscriptions?: NativeSubscriptionControlBridge;
+			/** Desktop Spotify OAuth via Electron main (see openSpotifyLogin). */
+			spotify?: { login: (authorizeUrl: string) => Promise<{ ok: boolean; error?: string }> };
 			expandWindow: () => void;
 			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
 			onZoom?: (cb: (factor: number) => void) => () => void;

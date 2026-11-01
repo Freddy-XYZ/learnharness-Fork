@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import net from "node:net";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -8,6 +10,7 @@ import {
 	formatTrackTime,
 	normalizeSpotifyRedirectOrigin,
 	SPOTIFY_CLIENT_ID_KEY,
+	SPOTIFY_DESKTOP_REDIRECT_URI,
 	SPOTIFY_KEY_INFO,
 	SPOTIFY_SCOPES,
 	validateKeyShape,
@@ -104,7 +107,6 @@ describe("openSpotifyLogin popup handling", () => {
 		const popup = fakePopup();
 		const calls: string[] = [];
 		const error = await openSpotifyLogin({
-			isDesktop: false,
 			open: (url) => (calls.push(`open:${url}`), popup as unknown as Window),
 			start: async () => (calls.push("start"), { authorizeUrl: AUTH }),
 		});
@@ -116,7 +118,6 @@ describe("openSpotifyLogin popup handling", () => {
 	it("browser: closes the blank popup and reports the server error", async () => {
 		const popup = fakePopup();
 		const error = await openSpotifyLogin({
-			isDesktop: false,
 			open: () => popup as unknown as Window,
 			start: async () => ({ error: "Please save your SPOTIFY_CLIENT_ID first." }),
 		});
@@ -125,19 +126,84 @@ describe("openSpotifyLogin popup handling", () => {
 	});
 
 	it("browser: reports a blocked popup", async () => {
-		const error = await openSpotifyLogin({ isDesktop: false, open: () => null, start: async () => ({ authorizeUrl: AUTH }) });
+		const error = await openSpotifyLogin({ open: () => null, start: async () => ({ authorizeUrl: AUTH }) });
 		assert.match(error ?? "", /Popup blocked/);
 	});
 
-	it("desktop: opens only the real URL and never reports Electron's null as blocked", async () => {
+	it("desktop: hands the URL to Electron main, opens no popup, and relays its error", async () => {
 		const opened: string[] = [];
-		const error = await openSpotifyLogin({
-			isDesktop: true,
+		const handed: string[] = [];
+		const ok = await openSpotifyLogin({
+			desktopLogin: async (url) => (handed.push(url), { ok: true }),
 			open: (url) => (opened.push(url), null),
 			start: async () => ({ authorizeUrl: AUTH }),
 		});
-		assert.equal(error, null);
-		assert.deepEqual(opened, [AUTH]);
+		assert.equal(ok, null);
+		assert.deepEqual(handed, [AUTH]);
+		assert.deepEqual(opened, []);
+		const failed = await openSpotifyLogin({
+			desktopLogin: async () => ({ ok: false, error: "Port 3000 is in use" }),
+			open: () => null,
+			start: async () => ({ authorizeUrl: AUTH }),
+		});
+		assert.equal(failed, "Port 3000 is in use");
+	});
+});
+
+describe("desktop Spotify login listener (electron/spotify-login.cjs)", () => {
+	const require = createRequire(import.meta.url);
+	const { spotifyLoginTarget, runSpotifyLogin } = require("../electron/spotify-login.cjs");
+	const authorize = (redirectUri: string, state = "s1") =>
+		buildSpotifyAuthorizeUrl({ clientId: "client1234567890abcd", redirectUri, codeChallenge: "c", state });
+	async function freePort(): Promise<number> {
+		const srv = net.createServer();
+		await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+		const { port } = srv.address() as net.AddressInfo;
+		await new Promise((r) => srv.close(r));
+		return port;
+	}
+
+	it("accepts only Spotify authorize URLs with a 127.0.0.1 http redirect", () => {
+		assert.equal(spotifyLoginTarget(authorize(SPOTIFY_DESKTOP_REDIRECT_URI))?.state, "s1");
+		assert.equal(spotifyLoginTarget(authorize("http://localhost:3000/api/spotify/callback")), null);
+		assert.equal(spotifyLoginTarget(authorize("https://evil.example/cb")), null);
+		assert.equal(spotifyLoginTarget(authorize(SPOTIFY_DESKTOP_REDIRECT_URI).replace("accounts.spotify.com", "accounts.spotify.com.evil.example")), null);
+		assert.equal(spotifyLoginTarget("not a url"), null);
+	});
+
+	it("ignores a wrong state, forwards the matching callback, then stops listening", async () => {
+		const port = await freePort();
+		const redirect = `http://127.0.0.1:${port}/api/spotify/callback`;
+		const forwarded: string[] = [];
+		let opened = "";
+		const done = runSpotifyLogin({
+			authorizeUrl: authorize(redirect),
+			openExternal: async (url: string) => { opened = url; },
+			forward: async (search: string) => (forwarded.push(search), new Response("<p>connected</p>", { status: 200 })),
+		});
+		while (!opened) await new Promise((r) => setTimeout(r, 5));
+		const forged = await fetch(`${redirect}?code=x&state=forged`);
+		assert.equal(forged.status, 400);
+		const real = await fetch(`${redirect}?code=abc&state=s1`);
+		assert.equal(real.status, 200);
+		assert.equal(await real.text(), "<p>connected</p>");
+		assert.deepEqual(await done, { ok: true });
+		assert.deepEqual(forwarded, ["?code=abc&state=s1"]);
+		await assert.rejects(fetch(`${redirect}?code=abc&state=s1`));
+	});
+
+	it("reports a busy port instead of hanging", async () => {
+		const busy = net.createServer();
+		await new Promise<void>((r) => busy.listen(0, "127.0.0.1", r));
+		const { port } = busy.address() as net.AddressInfo;
+		const result = await runSpotifyLogin({
+			authorizeUrl: authorize(`http://127.0.0.1:${port}/api/spotify/callback`),
+			openExternal: async () => assert.fail("must not open the browser"),
+			forward: async () => assert.fail("must not forward"),
+		});
+		busy.close();
+		assert.equal(result.ok, false);
+		assert.match(result.error, /in use/);
 	});
 });
 
@@ -292,5 +358,16 @@ describe("Spotify OAuth state expiry", () => {
 		const fresh = await completeSpotifyCallback("code", state, "http://127.0.0.1:3000");
 		assert.equal(fresh.ok, false);
 		assert.deepEqual(fetchCalls, ["https://accounts.spotify.com/api/token"], "a fresh state reaches the token exchange");
+
+		// Packaged desktop server (random port): the redirect is the fixed URI
+		// Electron main listens on, never the request origin.
+		const savedDesktop = process.env.LH_DESKTOP_SERVER;
+		t.after(() => {
+			if (savedDesktop === undefined) delete process.env.LH_DESKTOP_SERVER; else process.env.LH_DESKTOP_SERVER = savedDesktop;
+		});
+		process.env.LH_DESKTOP_SERVER = "1";
+		const desktop = startSpotifyLogin("http://127.0.0.1:54321");
+		assert.ok(desktop.ok);
+		assert.equal(desktop.redirectUri, SPOTIFY_DESKTOP_REDIRECT_URI);
 	});
 });
