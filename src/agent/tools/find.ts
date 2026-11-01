@@ -8,6 +8,7 @@ import {
 	formatSize,
 	MAX_OUTPUT_BYTES,
 	matchGlob,
+	assertReadablePath,
 	resolveSourcePath,
 	walkFiles,
 } from "./fs-shared.ts";
@@ -41,6 +42,7 @@ export const findTool: AgentTool<typeof findInput> = {
 	execute: serverExecute("find", findInput, async (input, ctx) => {
 		if (ctx?.signal?.aborted) return "Operation aborted";
 		const searchPath = resolveSourcePath(input.path);
+		await assertReadablePath(searchPath);
 		let stat;
 		try {
 			stat = await fs.stat(searchPath);
