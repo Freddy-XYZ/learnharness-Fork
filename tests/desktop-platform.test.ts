@@ -15,6 +15,9 @@ const mainRequire = createRequire(mainFile);
 /** Decline the single-instance lock so normal boot never spawns a server.
  * Then call the REAL createWindow with a stub Electron API and inspect its
  * constructor options. No rewritten copy of the production logic. */
+type PermissionHandler = (wc: unknown, permission: string, callback: (granted: boolean) => void, details: { requestingUrl?: string }) => void;
+let permissionHandler: PermissionHandler | undefined;
+
 function windowOptions(platform: string, env: Record<string, string> = {}) {
 	class FakeWindow {
 		constructor(readonly options: unknown) {}
@@ -25,12 +28,13 @@ function windowOptions(platform: string, env: Record<string, string> = {}) {
 	const electron = {
 		app: { setName() {}, getPath: () => "/fixture/LearnHarness", setPath() {}, requestSingleInstanceLock: () => false, quit() {} },
 		BrowserWindow: FakeWindow,
-		session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} } },
+		session: { defaultSession: { setPermissionRequestHandler(handler: PermissionHandler) { permissionHandler = handler; }, setPermissionCheckHandler() {} } },
 	};
 	const context = {
 		require: (id: string) => id === "electron" ? electron : mainRequire(id),
 		process: { platform, argv: [], env, on() {} },
 		__dirname: dirname(mainFile),
+		URL,
 	};
 	runInNewContext(mainSource, context, { filename: mainFile });
 	const win = runInNewContext('createWindow("http://127.0.0.1:9000")', context) as FakeWindow;
@@ -60,6 +64,19 @@ describe("desktop window chrome", () => {
 			assert.equal(options.webPreferences.nodeIntegration, false);
 		});
 	}
+
+	it("grants permissions only to the app origin, never to third-party frames such as Spotify's SDK", () => {
+		windowOptions("darwin");
+		const ask = (permission: string, requestingUrl: string) => {
+			let granted: boolean | undefined;
+			permissionHandler!(null, permission, (value) => { granted = value; }, { requestingUrl });
+			return granted;
+		};
+		assert.equal(ask("media", "http://127.0.0.1:9000/chat/new"), true);
+		assert.equal(ask("media", "https://sdk.scdn.co/embedded/index.html"), false);
+		assert.equal(ask("mediaKeySystem", "https://sdk.scdn.co/embedded/index.html"), false);
+		assert.equal(ask("mediaKeySystem", "http://127.0.0.1:9000/"), false);
+	});
 
 	it("only the external dev shell receives the web subscription transport marker", () => {
 		assert.equal(windowOptions("darwin").webPreferences.additionalArguments, undefined);

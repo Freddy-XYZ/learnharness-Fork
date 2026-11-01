@@ -101,6 +101,8 @@ The sidebar has a Spotify player for study music: play/pause, skip, seek, volume
 
 Tokens are stored locally in `spotify-auth.json` in the data directory (owner-only permissions). **Disconnect** in Settings removes them.
 
+**Security note.** In the browser, the in-app player loads Spotify's Web Playback SDK from `sdk.scdn.co` into the LearnHarness page. That script runs with the page's full access to the local LearnHarness API, so you trust Spotify's CDN as much as LearnHarness itself. If you do not want that, connect only from the desktop app, or skip the Spotify connection. The desktop app never loads the SDK: Electron has no Widevine support, so the SDK could not play there anyway. Desktop playback uses Spotify Connect devices or the macOS Spotify app.
+
 ## Your keys, your data
 
 - **Your keys and models.** No LearnHarness subscription or markup. Billing depends on your provider, CLI configuration, subscription, or local setup. The live cost meter estimates known API costs, not subscription, CLI, or custom-endpoint charges.
