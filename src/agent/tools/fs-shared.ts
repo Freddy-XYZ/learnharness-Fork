@@ -51,13 +51,14 @@ export function resolveSourcePath(p?: string): string {
  * Credentials and keys the learner-file tools never read (prompt injection
  * in an imported note, PDF or web page must not be able to pull them into
  * a model context). Home-relative locations, plus file names wherever they
- * sit: LearnHarness's own key stores (repo root in dev, userData packaged)
- * and private-key files. Deliberately a short list of the high-value cases,
- * not a complete one.
+ * sit: LearnHarness's own key stores (repo root in dev, userData packaged),
+ * private-key files and .env / .env.* (the shared templates .env.example,
+ * .env.sample and .env.template stay readable). Deliberately a short list
+ * of the high-value cases, not a complete one.
  */
 const SENSITIVE_HOME_PATHS = [".ssh", ".gnupg", ".aws", ".config/gh", ".netrc", ".docker/config.json", ".kube"];
 const SENSITIVE_FILE_NAME =
-	/^(?:auth\.json|\.auth\.json\.tmp-.*|.*-credentials\.json.*|\.?spotify-auth\.json.*|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|.*\.pem|.*\.key)$/i;
+	/^(?:auth\.json|\.auth\.json\.tmp-.*|.*-credentials\.json.*|\.?spotify-auth\.json.*|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|.*\.pem|.*\.key|\.env(?:\.(?!(?:example|sample|template)$).+)?)$/i;
 
 /** Lexical denylist check, case-insensitive (macOS/Windows file systems
  *  are). Walks use it as-is: they never follow symlinks. */

@@ -328,9 +328,17 @@ describe("credential denylist (read/ls/find/grep)", () => {
 			await fs.writeFile(path.join(home, "notes", "auth.json"), `{"KEY":"${SECRET}"}\n`);
 			await fs.writeFile(path.join(home, "notes", "server.pem"), `${SECRET}\n`);
 			await fs.writeFile(path.join(home, "notes", "id_ed25519.pub"), "ssh-ed25519 public\n");
+			await fs.mkdir(path.join(home, "code", "app"), { recursive: true });
+			for (const name of [".env", ".env.local", ".env.production.local"]) {
+				await fs.writeFile(path.join(home, "code", "app", name), `API_KEY=${SECRET}\n`);
+			}
+			await fs.writeFile(path.join(home, "code", "app", ".env.example"), "API_KEY=your-key-here\n");
 			await fs.symlink(path.join(home, ".ssh", "id_ed25519"), path.join(home, "notes", "innocent.txt"));
 
-			for (const p of ["~/.ssh/id_ed25519", "~/.SSH/config", "~/.config/gh/hosts.yml", "~/notes/auth.json", "~/notes/server.pem", "~/notes/innocent.txt"]) {
+			for (const p of [
+				"~/.ssh/id_ed25519", "~/.SSH/config", "~/.config/gh/hosts.yml", "~/notes/auth.json", "~/notes/server.pem", "~/notes/innocent.txt",
+				"~/code/app/.env", "~/code/app/.env.local", "~/code/app/.ENV.production.local",
+			]) {
 				await assert.rejects(runText(readTool, { path: p }), /Access denied/, p);
 			}
 			await assert.rejects(runText(lsTool, { path: "~/.ssh" }), /Access denied/);
@@ -340,11 +348,13 @@ describe("credential denylist (read/ls/find/grep)", () => {
 			const walkedGrep = await runText(grepTool, { path: "~", pattern: SECRET });
 			assert.doesNotMatch(walkedGrep, /SECRET-KEY-MATERIAL/, "home-wide grep never surfaces key material");
 			const walkedFind = await runText(findTool, { path: "~", pattern: "*" });
-			assert.doesNotMatch(walkedFind, /\.ssh|hosts\.yml|auth\.json|server\.pem/);
+			assert.doesNotMatch(walkedFind, /\.ssh|hosts\.yml|auth\.json|server\.pem|\.env\b(?!\.example)/);
+			assert.match(walkedFind, /code\/app\/\.env\.example/);
 			assert.match(walkedFind, /notes\/calculus\.md/);
 
 			assert.match(await runText(readTool, { path: "~/notes/calculus.md" }), /The derivative measures force/);
 			assert.match(await runText(readTool, { path: "~/notes/id_ed25519.pub" }), /ssh-ed25519 public/, "public keys are not secrets");
+			assert.match(await runText(readTool, { path: "~/code/app/.env.example" }), /your-key-here/, "shared env templates are not secrets");
 		} finally {
 			if (originalHome === undefined) delete process.env.HOME;
 			else process.env.HOME = originalHome;
