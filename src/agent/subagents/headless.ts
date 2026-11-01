@@ -285,7 +285,10 @@ async function withBrowserPage<T>(fn: (page: import("puppeteer-core").Page) => P
 		// Explicit path when we found one; otherwise let puppeteer resolve the
 		// system Chrome install itself via the "chrome" channel.
 		...(executablePath ? { executablePath } : { channel: "chrome" as const }),
-		args: ["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+		// Chrome's sandbox stays ON: this page runs model-written demo HTML/JS.
+		// (Without it a renderer exploit is a full host compromise. Chrome only
+		// needs --no-sandbox as root or in containers, which a desktop app is not.)
+		args: ["--disable-gpu", "--disable-dev-shm-usage"],
 	});
 	try {
 		const page = await browser.newPage();
