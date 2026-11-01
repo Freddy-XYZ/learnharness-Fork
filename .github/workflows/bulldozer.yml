@@ -1,0 +1,126 @@
+name: Bulldozer
+
+# Merges PRs automatically once the ruleset's required checks are green.
+# GitHub's native auto-merge does the merging; this workflow only
+#   1. turns auto-merge on for the owner's own PRs, and
+#   2. brings auto-merge PRs that fell behind main up to date (the ruleset
+#      requires branches to be current) and starts CI on those updates.
+#
+# Why a 10-minute sweep instead of "on push to main": merges done by an
+# auto-merge that GITHUB_TOKEN enabled trigger no workflows at all, and a
+# GITHUB_TOKEN branch update only creates approval-required pull_request
+# runs. workflow_dispatch is the documented exception that always runs.
+#
+# Never checks out or runs PR code. To stop a PR: "Disable auto-merge" on the
+# PR page; the bulldozer only turns it on again if the PR is closed and
+# reopened.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  enable-auto-merge:
+    name: Enable auto-merge
+    # Only the owner's own, non-draft PRs from this repository; never forks.
+    if: >-
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Turn on auto-merge (merge commit)
+        run: |
+          set -euo pipefail
+          if [ "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "true" ]; then
+            echo "Auto-merge is already on for #$PR."
+            exit 0
+          fi
+          if gh pr merge "$PR" --auto --merge; then
+            echo "Auto-merge on for #$PR."
+            exit 0
+          fi
+          # Auto-merge can only be enabled while something is still pending.
+          # A PR whose checks already passed (e.g. a draft marked ready) merges now.
+          if [ "$(gh pr view "$PR" --json mergeStateStatus --jq .mergeStateStatus)" = "CLEAN" ]; then
+            gh pr merge "$PR" --merge
+          else
+            echo "::warning::Could not enable auto-merge for #$PR."
+            exit 1
+          fi
+
+  update-behind:
+    name: Update auto-merge PRs behind main
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: bulldozer-update-behind
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Merge main into behind PRs and run CI on the bulldozer's commits
+        run: |
+          set -euo pipefail
+          list() {
+            gh pr list --state open --limit 100 \
+              --json number,headRefName,headRefOid,isDraft,isCrossRepository,mergeStateStatus,autoMergeRequest \
+              --jq '.[] | select(.autoMergeRequest != null and (.isDraft | not) and (.isCrossRepository | not)) | [.number, .headRefName, .headRefOid, .mergeStateStatus] | @tsv'
+          }
+          prs=$(list)
+          if [ -z "$prs" ]; then
+            echo "No open auto-merge PR."
+            exit 0
+          fi
+          failed=0
+          updated=0
+
+          # 1. The ruleset requires branches to be current: merge main into
+          #    auto-merge PRs that fell behind.
+          while IFS=$'\t' read -r number branch sha state; do
+            [ "$state" = "BEHIND" ] || continue
+            echo "#$number ($branch) is behind main: merging main into it."
+            if gh api -X PUT "repos/$GH_REPO/pulls/$number/update-branch" -f expected_head_sha="$sha" --silent; then
+              updated=1
+            else
+              echo "::warning::Could not update #$number."
+              failed=1
+            fi
+          done <<< "$prs"
+          # update-branch is asynchronous: give the new merge commits a moment.
+          if [ "$updated" = 1 ]; then
+            sleep 30
+            prs=$(list)
+          fi
+
+          # 2. A commit the bulldozer made (GITHUB_TOKEN) gets no automatic CI,
+          #    only approval-required runs. Start CI once per such commit; this
+          #    also covers an update that finished after the previous sweep.
+          while IFS=$'\t' read -r number branch sha state; do
+            [ -n "$sha" ] || continue
+            [ "$(gh api "repos/$GH_REPO/commits/$sha" --jq '.author.login // ""')" = "github-actions[bot]" ] || continue
+            [ "$(gh run list --workflow ci.yml --event workflow_dispatch --commit "$sha" --limit 1 --json databaseId --jq length)" = "0" ] || continue
+            echo "#$number ($branch): starting CI for $sha."
+            gh workflow run ci.yml --ref "$branch"
+          done <<< "$prs"
+          exit "$failed"
