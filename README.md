@@ -85,7 +85,7 @@ All three platforms support in-app updates.
 
 The sidebar has a Spotify player for study music: play/pause, skip, seek, volume, your playlists, and track search. Playback requires **Spotify Premium**.
 
-> **Desktop app limitation:** the packaged desktop app starts its server on a random port each launch. Spotify requires an exact redirect URI, so connecting from the packaged app does not work yet. Run LearnHarness with `npm run dev` (or `npm run desktop:dev`) to use Spotify.
+> **Desktop app:** the login opens in your system browser. The packaged app's server uses a random port, so during the login the app briefly listens on `127.0.0.1:3000` for Spotify's callback, the same redirect URI as below. If another program uses port 3000 at that moment, the login reports it; quit that program and try again.
 
 1. **Create a Spotify app.** Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), choose **Create app**, and select **Web API** and **Web Playback SDK**.
 2. **Add the redirect URI** exactly as written:

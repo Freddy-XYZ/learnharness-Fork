@@ -81,6 +81,12 @@ export function normalizeSpotifyRedirectOrigin(origin: string): string {
 	}
 }
 
+/** The packaged desktop app's server runs on a random port, so its OAuth
+ *  redirect is this fixed URI instead: Electron main listens on it only
+ *  while a login is open (electron/spotify-login.cjs). Same URI the README
+ *  has users register for `npm run dev`. */
+export const SPOTIFY_DESKTOP_REDIRECT_URI = "http://127.0.0.1:3000/api/spotify/callback";
+
 export function buildSpotifyRedirectUri(origin: string): string {
 	return `${normalizeSpotifyRedirectOrigin(origin)}/api/spotify/callback`;
 }
