@@ -108,6 +108,14 @@ test("loopback guard rejects rebound Host names and cross-site Origins on every 
 		{ host: "bad host" },
 	]) assert(!allowed(h), JSON.stringify(h));
 	assert.equal(proxy(new NextRequest(origin + "/chat/new", { headers: { host: "evil.example:12345" } })).status, 403, "pages are guarded too");
+	for (const response of [
+		proxy(new NextRequest(origin + "/chat/new", { headers: { host: "127.0.0.1:12345" } })),
+		proxy(new NextRequest(origin + "/chat/new", { headers: { host: "evil.example:12345" } })),
+	]) {
+		assert.equal(response.headers.get("content-security-policy"), "frame-ancestors 'none'", "no other site may frame the UI");
+		assert.equal(response.headers.get("x-frame-options"), "DENY");
+		assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+	}
 	assert.equal(proxy(new NextRequest(origin + "/api/spotify/player", { method: "POST", headers: { host: "127.0.0.1:12345", origin: "https://evil.example" } })).status, 403);
 });
 
