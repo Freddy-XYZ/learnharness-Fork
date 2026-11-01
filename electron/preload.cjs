@@ -24,6 +24,10 @@
  *   snapshot for a late subscriber; checkForUpdates requests a manual
  *   check (including download/install-on-quit, even with automatic checks OFF).
  *
+ *   window.lh.spotify.login(authorizeUrl) — desktop Spotify OAuth: main
+ *   opens the system browser and receives the callback itself (the packaged
+ *   server's port is random); resolves {ok, error?} when it completes.
+ *
  *   window.lh.onOpenSettings(cb) — menu navigation, buffered until React
  *   subscribes after a window is reopened. Browser builds have no bridge.
  *
@@ -75,6 +79,9 @@ contextBridge.exposeInMainWorld("lh", {
 			ipcRenderer.on("lh:subscriptions:changed", listener);
 			return () => ipcRenderer.removeListener("lh:subscriptions:changed", listener);
 		},
+	},
+	spotify: {
+		login: (authorizeUrl) => ipcRenderer.invoke("lh:spotify:login", authorizeUrl),
 	},
 	expandWindow: () => ipcRenderer.send("lh:expand-window"),
 	onZoom: (cb) => {

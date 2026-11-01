@@ -28,6 +28,7 @@ import {
 } from "@/src/core";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { useSettingsSaved } from "@/components/settings-signal";
+import { openSpotifyLogin } from "@/components/settings/keys-section.tsx";
 
 export type SpotifyPlayerTab = "now" | "playlists" | "search";
 
@@ -880,20 +881,25 @@ export function SpotifyFloatingPlayer() {
 
 	const handleConnectSpotify = async () => {
 		setError(null);
-		try {
-			const res = await fetch("/api/spotify/status", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ action: "login" }),
-			});
-			const data = (await res.json()) as { ok?: boolean; authorizeUrl?: string; error?: string };
-			if (data.authorizeUrl) {
-				window.open(data.authorizeUrl, "lh-spotify-auth", "width=520,height=720");
-			} else {
-				setError(data.error ?? "Verbindung fehlgeschlagen.");
-			}
-		} catch {
-			setError("Verbindung fehlgeschlagen.");
+		const desktopLogin = window.lh?.spotify?.login;
+		const loginError = await openSpotifyLogin({
+			desktopLogin,
+			open: (url) => window.open(url, "lh-spotify-auth", "width=520,height=720"),
+			start: async () => {
+				const res = await fetch("/api/spotify/status", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ action: "login" }),
+				});
+				const data = (await res.json().catch(() => ({}))) as { authorizeUrl?: string; error?: string };
+				return res.ok ? data : { error: data.error };
+			},
+		});
+		if (loginError) {
+			setError(loginError);
+		} else if (desktopLogin) {
+			void loadStatus();
+			void refreshPlayback();
 		}
 	};
 

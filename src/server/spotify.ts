@@ -18,6 +18,7 @@ import {
 	buildSpotifyRedirectUri,
 	clampSpotifyVolume,
 	SPOTIFY_CLIENT_ID_KEY,
+	SPOTIFY_DESKTOP_REDIRECT_URI,
 	type SpotifyAuthStatus,
 	type SpotifyPlaybackState,
 	type SpotifyPlaylistSummary,
@@ -99,7 +100,8 @@ export function startSpotifyLogin(origin: string): { ok: true; authorizeUrl: str
 	if (!clientId) {
 		return { ok: false, error: "Please save your SPOTIFY_CLIENT_ID first." };
 	}
-	const redirectUri = buildSpotifyRedirectUri(origin);
+	const redirectUri =
+		process.env.LH_DESKTOP_SERVER === "1" ? SPOTIFY_DESKTOP_REDIRECT_URI : buildSpotifyRedirectUri(origin);
 	const { codeVerifier, codeChallenge } = generatePkcePair();
 	const state = crypto.randomBytes(16).toString("base64url");
 	const rec = readSpotifyRecord();
