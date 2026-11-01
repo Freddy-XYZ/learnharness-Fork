@@ -107,13 +107,36 @@ Antworte auf Deutsch in gut strukturiertem GitHub-Markdown im folgenden Format:
 ### ✅ Fazit & Empfehlung
 [Klares Fazit: z. B. Freigabe empfohlen oder Handlungsbedarf vor dem Merge]`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.8-flash",
-    contents: `Hier ist der Git-Diff des Pull Requests zur Überprüfung:\n\n\`\`\`diff\n${diffForPrompt}\n\`\`\``,
-    config: {
-      systemInstruction,
-    },
-  });
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: `Hier ist der Git-Diff des Pull Requests zur Überprüfung:\n\n\`\`\`diff\n${diffForPrompt}\n\`\`\``,
+      config: {
+        systemInstruction,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("prepayment credits are depleted") || (err && (err.status === 402 || err.code === 402))) {
+      console.warn(
+        "\n⚠️  Gemini API Billing Hinweis (HTTP 402):\n" +
+        "   Die Prepayment-Credits für den verwendeten API-Key sind aufgebraucht.\n" +
+        "   Tipp: Wenn du ein reines Free-Tier-Projekt in AI Studio (ohne Google Cloud Billing) nutzt,\n" +
+        "   ist die API dauerhaft kostenlos. Erstelle auf https://aistudio.google.com/apikey einen\n" +
+        "   neuen Key mit 'Create API key in new project' und aktualisiere das GitHub Secret GEMINI_API_KEY.\n"
+      );
+      process.exit(0);
+    }
+    if (msg.includes("RESOURCE_EXHAUSTED") || (err && (err.status === 429 || err.code === 429))) {
+      console.warn(
+        "\n⚠️  Gemini API Rate-Limit erreicht (HTTP 429).\n" +
+        "   Das temporäre Anfragelimit wurde erreicht. Der Review wird beim nächsten Push wiederholt.\n"
+      );
+      process.exit(0);
+    }
+    throw err;
+  }
 
   const reviewText = response.text;
   if (!reviewText) {
