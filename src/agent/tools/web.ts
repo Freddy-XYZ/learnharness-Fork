@@ -8,6 +8,7 @@ export type { WebSearchResult };
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
+import { nonPublicReason, publicFetch } from "./public-fetch.ts";
 
 /**
  * Server-side web tools for the researcher sub-agent — a minimal port of the
@@ -81,7 +82,9 @@ function htmlToMarkdown(html: string): { title: string; content: string } | null
 }
 
 async function fetchAndExtract(url: string): Promise<string> {
-	const resp = await fetch(url, {
+	// Public addresses only (SSRF): the model picks the URL. Jina below only
+	// ever sees a URL that already passed this check.
+	const resp = await publicFetch(url, {
 		headers: {
 			"User-Agent": USER_AGENT,
 			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -181,7 +184,7 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 				try {
 					return await fetchAndExtract(url);
 				} catch (err) {
-					return `web_fetch failed for ${url}: ${err instanceof Error ? err.message : String(err)}`;
+					return `web_fetch failed for ${url}: ${nonPublicReason(err) ?? (err instanceof Error ? err.message : String(err))}`;
 				}
 			}),
 		},
