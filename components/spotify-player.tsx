@@ -566,6 +566,7 @@ export function SpotifyFloatingPlayer() {
 	useEffect(() => {
 		void loadStatus();
 		const onMessage = (e: MessageEvent) => {
+			if (e.origin !== window.location.origin) return;
 			if (e.data && typeof e.data === "object" && (e.data as { type?: unknown }).type === "lh:spotify-connected") {
 				void loadStatus();
 				void refreshPlayback();

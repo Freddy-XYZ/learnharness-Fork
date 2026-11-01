@@ -328,8 +328,12 @@ describe("credential denylist (read/ls/find/grep)", () => {
 			await fs.writeFile(path.join(home, "notes", "auth.json"), `{"KEY":"${SECRET}"}\n`);
 			await fs.writeFile(path.join(home, "notes", "server.pem"), `${SECRET}\n`);
 			await fs.writeFile(path.join(home, "notes", "id_ed25519.pub"), "ssh-ed25519 public\n");
+			await fs.writeFile(path.join(home, ".bash_history"), `export SECRET=${SECRET}\n`);
+			await fs.writeFile(path.join(home, ".zsh_history"), `: 0:0;SECRET=${SECRET}\n`);
+			await fs.writeFile(path.join(home, ".git-credentials"), `https://user:${SECRET}@github.com\n`);
+			await fs.writeFile(path.join(home, ".pypirc"), `password = ${SECRET}\n`);
 			await fs.mkdir(path.join(home, "code", "app"), { recursive: true });
-			for (const name of [".env", ".env.local", ".env.production.local"]) {
+			for (const name of [".env", ".env.local", ".env.production.local", ".npmrc"]) {
 				await fs.writeFile(path.join(home, "code", "app", name), `API_KEY=${SECRET}\n`);
 			}
 			await fs.writeFile(path.join(home, "code", "app", ".env.example"), "API_KEY=your-key-here\n");
@@ -337,7 +341,8 @@ describe("credential denylist (read/ls/find/grep)", () => {
 
 			for (const p of [
 				"~/.ssh/id_ed25519", "~/.SSH/config", "~/.config/gh/hosts.yml", "~/notes/auth.json", "~/notes/server.pem", "~/notes/innocent.txt",
-				"~/code/app/.env", "~/code/app/.env.local", "~/code/app/.ENV.production.local",
+				"~/code/app/.env", "~/code/app/.env.local", "~/code/app/.ENV.production.local", "~/code/app/.npmrc",
+				"~/.bash_history", "~/.zsh_history", "~/.git-credentials", "~/.pypirc",
 			]) {
 				await assert.rejects(runText(readTool, { path: p }), /Access denied/, p);
 			}
@@ -345,10 +350,22 @@ describe("credential denylist (read/ls/find/grep)", () => {
 			await assert.rejects(runText(grepTool, { path: "~/notes/innocent.txt", pattern: "SECRET" }), /Access denied/);
 			await assert.rejects(runText(findTool, { path: "~/.config/gh", pattern: "*" }), /Access denied/);
 
+			const listedHome = await runText(lsTool, { path: "~" });
+			assert.doesNotMatch(listedHome, /\.ssh|\.bash_history|\.zsh_history|\.git-credentials|\.pypirc|auth\.json/, "ls ~ filters sensitive entries");
+			assert.match(listedHome, /notes\//);
+			assert.match(listedHome, /code\//);
+
+			const listedConfig = await runText(lsTool, { path: "~/.config" });
+			assert.doesNotMatch(listedConfig, /\bgh\b/, "ls ~/.config filters gh");
+
+			const listedApp = await runText(lsTool, { path: "~/code/app" });
+			assert.doesNotMatch(listedApp, /\.env\b(?!\.example)|\.npmrc/, "ls ~/code/app filters sensitive env/npmrc files");
+			assert.match(listedApp, /\.env\.example/);
+
 			const walkedGrep = await runText(grepTool, { path: "~", pattern: SECRET });
 			assert.doesNotMatch(walkedGrep, /SECRET-KEY-MATERIAL/, "home-wide grep never surfaces key material");
 			const walkedFind = await runText(findTool, { path: "~", pattern: "*" });
-			assert.doesNotMatch(walkedFind, /\.ssh|hosts\.yml|auth\.json|server\.pem|\.env\b(?!\.example)/);
+			assert.doesNotMatch(walkedFind, /\.ssh|hosts\.yml|auth\.json|server\.pem|\.env\b(?!\.example)|\.npmrc|\.git-credentials|\.pypirc|\.bash_history|\.zsh_history/);
 			assert.match(walkedFind, /code\/app\/\.env\.example/);
 			assert.match(walkedFind, /notes\/calculus\.md/);
 

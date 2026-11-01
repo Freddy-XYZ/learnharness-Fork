@@ -98,7 +98,14 @@ if (process.argv.includes("--browser-service")) {
 			await app.whenReady();
 			// A hidden window keeps the app lifecycle ordinary on every
 			// platform (no window-all-closed handler is installed here).
-			const win = new BrowserWindow({ show: false });
+			const win = new BrowserWindow({
+				show: false,
+				webPreferences: {
+					contextIsolation: true,
+					sandbox: true,
+					nodeIntegration: false,
+				},
+			});
 			await win.loadURL("about:blank");
 			// Window load is not a DevTools HTTP readiness barrier. Confirm the
 			// endpoint before both production and smoke clients see the handshake.
@@ -365,9 +372,13 @@ function createWindow(url) {
 	});
 
 	win.webContents.on("will-navigate", (event, target) => {
-		if (new URL(target).origin !== allowedOrigin()) {
+		try {
+			if (new URL(target).origin !== allowedOrigin()) {
+				event.preventDefault();
+				if (externalURLAllowed(target)) void shell.openExternal(target);
+			}
+		} catch {
 			event.preventDefault();
-			if (externalURLAllowed(target)) void shell.openExternal(target);
 		}
 	});
 	win.webContents.setWindowOpenHandler(({ url: target }) => {

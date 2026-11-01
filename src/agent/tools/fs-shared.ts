@@ -56,9 +56,19 @@ export function resolveSourcePath(p?: string): string {
  * .env.sample and .env.template stay readable). Deliberately a short list
  * of the high-value cases, not a complete one.
  */
-const SENSITIVE_HOME_PATHS = [".ssh", ".gnupg", ".aws", ".config/gh", ".netrc", ".docker/config.json", ".kube"];
+const SENSITIVE_HOME_PATHS = [
+	".ssh",
+	".gnupg",
+	".aws",
+	".config/gh",
+	".netrc",
+	".docker/config.json",
+	".kube",
+	".bash_history",
+	".zsh_history",
+];
 const SENSITIVE_FILE_NAME =
-	/^(?:auth\.json|\.auth\.json\.tmp-.*|.*-credentials\.json.*|\.?spotify-auth\.json.*|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|.*\.pem|.*\.key|\.env(?:\.(?!(?:example|sample|template)$).+)?)$/i;
+	/^(?:auth\.json|\.auth\.json\.tmp-.*|.*-credentials\.json.*|\.?spotify-auth\.json.*|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|.*\.pem|.*\.key|\.env(?:\.(?!(?:example|sample|template)$).+)?|\.npmrc|\.pypirc|\.git-credentials)$/i;
 
 /** Lexical denylist check, case-insensitive (macOS/Windows file systems
  *  are). Walks use it as-is: they never follow symlinks. */

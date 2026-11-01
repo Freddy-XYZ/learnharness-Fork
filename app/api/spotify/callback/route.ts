@@ -92,7 +92,7 @@ function renderCallbackHtml(ok: boolean, message: string): string {
 		if (${ok ? "true" : "false"}) {
 			try {
 				if (window.opener) {
-					window.opener.postMessage({ type: "lh:spotify-connected" }, "*");
+					window.opener.postMessage({ type: "lh:spotify-connected" }, window.location.origin);
 				}
 			} catch (e) {}
 			setTimeout(function() {
