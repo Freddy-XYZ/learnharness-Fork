@@ -33,3 +33,16 @@ export function localRequestAllowed(headers: Headers): boolean {
 		return false; // unparsable Host, or Origin "null" (sandboxed frames, file:)
 	}
 }
+
+/** Fetch Metadata resource isolation (Sec-Fetch-*), on top of the Host/
+ * Origin guard: another site, or another port on this machine ("same-site"),
+ * may only NAVIGATE here top-level (links, the Spotify OAuth redirect back).
+ * It may not frame a page, load one as an image/script/style, or no-cors
+ * fetch it, so those never even render server-side. Requests without
+ * sec-fetch-site are non-browser clients or browsers without Fetch Metadata;
+ * they keep the Host/Origin guard alone. */
+export function fetchMetadataAllowed(headers: Headers, method: string): boolean {
+	const site = headers.get("sec-fetch-site");
+	if (site === null || site === "same-origin" || site === "none") return true;
+	return (method === "GET" || method === "HEAD") && headers.get("sec-fetch-mode") === "navigate" && headers.get("sec-fetch-dest") === "document";
+}

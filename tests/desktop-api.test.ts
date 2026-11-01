@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { NextRequest } from "next/server";
-import { desktopAPIAuthorized, localRequestAllowed } from "../src/server/desktop-access.ts";
+import { desktopAPIAuthorized, fetchMetadataAllowed, localRequestAllowed } from "../src/server/desktop-access.ts";
 import { proxy } from "../proxy.ts";
 import { browserServiceSpawnEnv } from "../src/agent/subagents/headless.ts";
 const require = createRequire(import.meta.url);
@@ -117,6 +117,31 @@ test("loopback guard rejects rebound Host names and cross-site Origins on every 
 		assert.equal(response.headers.get("x-content-type-options"), "nosniff");
 	}
 	assert.equal(proxy(new NextRequest(origin + "/api/spotify/player", { method: "POST", headers: { host: "127.0.0.1:12345", origin: "https://evil.example" } })).status, 403);
+});
+
+test("fetch metadata: other sites may only navigate top-level, never frame or embed", () => {
+	const meta = (site: string, mode: string, dest: string) => ({ "sec-fetch-site": site, "sec-fetch-mode": mode, "sec-fetch-dest": dest });
+	const ok = (h: Record<string, string>, method = "GET") => fetchMetadataAllowed(new Headers(h), method);
+	assert(ok({}), "no Fetch Metadata: non-browser client or older browser");
+	assert(ok(meta("same-origin", "cors", "empty"), "POST"), "the app's own fetches");
+	assert(ok(meta("none", "navigate", "document")), "typed URL, bookmark, Electron loadURL");
+	assert(ok(meta("cross-site", "navigate", "document")), "a link or the Spotify OAuth redirect back");
+	assert(ok(meta("cross-site", "navigate", "document"), "HEAD"));
+	for (const [h, method] of <[Record<string, string>, string][]>[
+		[meta("cross-site", "navigate", "iframe"), "GET"], // framing
+		[meta("cross-site", "navigate", "frame"), "GET"],
+		[meta("cross-site", "no-cors", "image"), "GET"], // <img src> probing
+		[meta("cross-site", "no-cors", "script"), "GET"],
+		[meta("cross-site", "no-cors", "empty"), "POST"], // no-cors fetch
+		[meta("cross-site", "navigate", "document"), "POST"], // form post navigation
+		[meta("same-site", "navigate", "iframe"), "GET"], // another port on 127.0.0.1
+		[meta("same-site", "no-cors", "image"), "GET"],
+	]) assert(!ok(h, method), `${JSON.stringify(h)} ${method}`);
+
+	const page = (h: Record<string, string>) => proxy(new NextRequest(origin + "/chat/chat_1", { headers: { host: "127.0.0.1:12345", ...h } }));
+	assert.equal(page(meta("cross-site", "navigate", "iframe")).status, 403, "a foreign iframe never renders the chat");
+	assert.equal(page(meta("cross-site", "navigate", "document")).headers.get("x-middleware-next"), "1");
+	assert.equal(proxy(new NextRequest(origin + "/api/spotify/callback?code=c&state=s", { headers: { host: "127.0.0.1:12345", ...meta("cross-site", "navigate", "document") } })).headers.get("x-middleware-next"), "1", "the Spotify redirect back still lands");
 });
 
 test("only http(s) and mailto links leave the app", () => {

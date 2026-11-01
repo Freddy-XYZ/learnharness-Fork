@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { desktopAPIAuthorized, localRequestAllowed } from "./src/server/desktop-access.ts";
+import { desktopAPIAuthorized, fetchMetadataAllowed, localRequestAllowed } from "./src/server/desktop-access.ts";
 
 /** On every response: no other site may frame LearnHarness (clickjacking
  * against the local UI), and no response is MIME-sniffed. The app's own
@@ -24,7 +24,9 @@ const forbidden = (error: string) => secured(NextResponse.json({ error }, { stat
  * jobs call server functions, and any legitimate self-HTTP request must
  * carry the private capability. */
 export function proxy(request: NextRequest) {
-	if (!localRequestAllowed(request.headers)) return forbidden("Requests must come from this machine's LearnHarness origin.");
+	if (!localRequestAllowed(request.headers) || !fetchMetadataAllowed(request.headers, request.method)) {
+		return forbidden("Requests must come from this machine's LearnHarness origin.");
+	}
 	const { pathname } = request.nextUrl;
 	if ((pathname === "/api" || pathname.startsWith("/api/")) && !desktopAPIAuthorized(request.headers)) {
 		return forbidden("Desktop API access requires the trusted LearnHarness window.");
