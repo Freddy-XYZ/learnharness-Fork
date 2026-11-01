@@ -483,6 +483,7 @@ export function KeysSection({
 	useEffect(() => {
 		void reload();
 		const onMessage = (e: MessageEvent) => {
+			if (e.origin !== window.location.origin) return;
 			if (e.data && typeof e.data === "object" && (e.data as { type?: unknown }).type === "lh:spotify-connected") {
 				void reload();
 				notifySettingsSaved("keys");
